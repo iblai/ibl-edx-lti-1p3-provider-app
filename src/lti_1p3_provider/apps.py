@@ -1,4 +1,6 @@
 from django.apps import AppConfig
+from edx_django_utils.plugins import PluginSettings, PluginURLs
+from openedx.core.djangoapps.plugins.constants import ProjectType, SettingsType
 
 
 class Lti1p3ProviderConfig(AppConfig):
@@ -10,16 +12,18 @@ class Lti1p3ProviderConfig(AppConfig):
     verbose_name = "lti_1p3_provider"
 
     plugin_app = {
-        "settings_config": {
-            "lms.djangoapp": {
-                "common": {
-                    "relative_path": "settings.common",
+        PluginSettings.CONFIG: {
+            ProjectType.LMS: {
+                SettingsType.COMMON: {
+                    PluginSettings.RELATIVE_PATH: "settings.common",
                 },
             },
-            "cms.djangoapp": {
-                "common": {
-                    "relative_path": "settings.common",
-                },
-            },
-        }
+        },
+        PluginURLs.CONFIG: {
+            ProjectType.LMS: {
+                PluginURLs.NAMESPACE: "lti_1p3_provider",
+                PluginURLs.REGEX: "^lti/1p3/",
+                PluginURLs.RELATIVE_PATH: "urls",
+            }
+        },
     }
