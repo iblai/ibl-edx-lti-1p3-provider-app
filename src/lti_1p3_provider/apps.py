@@ -9,7 +9,7 @@ class Lti1p3ProviderConfig(AppConfig):
     """
 
     name = "lti_1p3_provider"
-    verbose_name = "lti_1p3_provider"
+    verbose_name = "lti_1p3_providers"
 
     plugin_app = {
         PluginSettings.CONFIG: {
