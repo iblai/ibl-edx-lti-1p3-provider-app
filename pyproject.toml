@@ -15,4 +15,4 @@ dependencies = []
 dev = []
 
 [project.entry-points."lms.djangoapps"]
-lti_1p3_provider = "lti_1p3_provider.apps:LTI1p3ProviderConfig"
+lti_1p3_provider = "lti_1p3_provider.apps:Lti1p3ProviderConfig"
