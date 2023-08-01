@@ -43,7 +43,6 @@ from opaque_keys.edx.django.models import UsageKeyField
 from pylti1p3.contrib.django import DjangoDbToolConf, DjangoMessageLaunch
 from pylti1p3.grade import Grade
 
-from .apps import ContentLibrariesConfig
 
 log = logging.getLogger(__name__)
 
@@ -135,7 +134,8 @@ class LtiProfile(models.Model):
         if not self.user:
             uid = uuid.uuid5(uuid.NAMESPACE_URL, self.subject_url)
             username = f"urn:openedx:content_libraries:username:{uid}"
-            email = f"{uid}@{ContentLibrariesConfig.name}"
+            # NOTE: Changed @{ContentLibrariesConfig.name}
+            email = f"{uid}@edx-lti.com"
             with transaction.atomic():
                 if self.user is None:
                     self.user, created = User.objects.get_or_create(
