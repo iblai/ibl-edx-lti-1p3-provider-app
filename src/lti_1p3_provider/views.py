@@ -132,6 +132,7 @@ class LtiToolLaunchView(TemplateResponseMixin, LtiToolView):
 
         # Check library authorization.
 
+        # TODO: Update this check appropriately
         if not ContentLibrary.authorize_lti_launch(
             usage_key.lib_key,
             issuer=self.launch_data["iss"],
@@ -155,6 +156,7 @@ class LtiToolLaunchView(TemplateResponseMixin, LtiToolView):
 
         if edx_user is not None:
             login(self.request, edx_user)
+            # TODO: Do we need any of this?
             perms = api.get_library_user_permissions(
                 usage_key.lib_key, self.request.user
             )
@@ -227,9 +229,12 @@ class LtiToolLaunchView(TemplateResponseMixin, LtiToolView):
 
         # Parse content key.
 
+        # TODO: It's a POST but they are expecting some GET params?
         usage_key_str = request.GET.get("id")
         if not usage_key_str:
             return self._bad_request_response()
+
+        # TODO: Probably change this into a UsageKey
         usage_key = LibraryUsageLocatorV2.from_string(usage_key_str)
         log.info("LTI 1.3: Launch block: id=%s", usage_key)
 
@@ -245,9 +250,11 @@ class LtiToolLaunchView(TemplateResponseMixin, LtiToolView):
 
         # Handle Assignment and Grade Service request.
 
+        # TODO: Evaluate if we need to update this?
         self.handle_ags()
 
         # Render context and response.
+        # TODO: Probably use the same rendering from lti 1.1 here for simplicity
         context = self.get_context_data()
         response = self.render_to_response(context)
         mark_user_change_as_expected(edx_user.id)
