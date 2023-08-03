@@ -86,7 +86,7 @@ class LtiProfile(models.Model):
         get_user_model(),
         null=True,
         on_delete=models.CASCADE,
-        related_name="contentlibraries_lti_profile",
+        related_name="lti_1p3_provider_lti_profile",
         # Translators: 'Open edX' is a trademark, please keep this untranslated
         verbose_name=_("open edx user"),
     )
@@ -205,7 +205,7 @@ class LtiGradedResource(models.Model):
     profile = models.ForeignKey(
         LtiProfile,
         on_delete=models.CASCADE,
-        related_name="lti_resources",
+        related_name="lti_1p3_provider_lti_resources",
         help_text=_(
             "The authorized LTI profile that launched the resource "
             "(identifies the user)."
