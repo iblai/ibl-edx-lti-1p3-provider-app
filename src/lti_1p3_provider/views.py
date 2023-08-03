@@ -35,7 +35,7 @@ from pylti1p3.contrib.django import (
 )
 from pylti1p3.exception import LtiException, OIDCException
 
-from .models import ContentLibrary, LtiGradedResource, LtiProfile
+from .models import LtiGradedResource, LtiProfile
 
 User = get_user_model()
 log = logging.getLogger(__name__)
@@ -133,12 +133,13 @@ class LtiToolLaunchView(TemplateResponseMixin, LtiToolView):
         # Check library authorization.
 
         # TODO: Update this check appropriately
-        if not ContentLibrary.authorize_lti_launch(
-            usage_key.lib_key,
-            issuer=self.launch_data["iss"],
-            client_id=self.launch_data["aud"],
-        ):
-            return None
+        log.warning("Check ContentLibrary.authiorize_lti_launch")
+        # if not ContentLibrary.authorize_lti_launch(
+        #     usage_key.lib_key,
+        #     issuer=self.launch_data["iss"],
+        #     client_id=self.launch_data["aud"],
+        # ):
+        #     return None
 
         # Check LTI profile.
 
