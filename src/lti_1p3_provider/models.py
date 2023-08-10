@@ -193,7 +193,7 @@ class LtiGradedResourceManager(models.Manager):
 
 class LtiGradedResource(models.Model):
     """
-    A content libraries resource launched through LTI with AGS enabled.
+    An LTI 1.3 resource launched through LTI with AGS enabled.
 
     Essentially, an instance of this model represents a successful LTI AGS
     launch.  This model links the profile that launched the resource with the
@@ -239,7 +239,7 @@ class LtiGradedResource(models.Model):
         max_length=255,
         null=False,
         help_text=_(
-            "If AGS was enabled during launch, this should hold the " "lineitem ID."
+            "If AGS was enabled during launch, this should hold the lineitem ID."
         ),
     )
 
