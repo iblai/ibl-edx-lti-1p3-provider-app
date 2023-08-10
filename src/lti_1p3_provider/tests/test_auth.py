@@ -33,4 +33,4 @@ class LtiAuthenticationBackendTest(TestCase):
         backend = Lti1p3AuthenticationBackend()
         user = backend.authenticate(None, iss=self.iss, aud=self.aud, sub=self.sub)
         self.assertIsNotNone(user)
-        self.assertEqual(user.contentlibraries_lti_profile, profile)
+        self.assertEqual(user.lti_1p3_provider_lti_profile, profile)
