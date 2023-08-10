@@ -20,8 +20,8 @@ from django.utils.decorators import method_decorator
 from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
-from django.views.generic.base import TemplateResponseMixin, View
-from opaque_keys.edx.locator import LibraryUsageLocatorV2
+from django.views.generic.base import View
+from opaque_keys.edx.keys import UsageKey
 from openedx.core.djangoapps.content_libraries import api
 from openedx.core.djangoapps.safe_sessions.middleware import (
     mark_user_change_as_expected,
@@ -108,7 +108,7 @@ class LtiToolLoginView(LtiToolView):
 
 @method_decorator(csrf_exempt, name="dispatch")
 @method_decorator(xframe_options_exempt, name="dispatch")
-class LtiToolLaunchView(TemplateResponseMixin, LtiToolView):
+class LtiToolLaunchView(LtiToolView):
     """
     LTI platform tool launch view.
 
@@ -158,13 +158,21 @@ class LtiToolLaunchView(TemplateResponseMixin, LtiToolView):
         if edx_user is not None:
             login(self.request, edx_user)
             # TODO: Do we need any of this?
-            perms = api.get_library_user_permissions(
-                usage_key.lib_key, self.request.user
+            # perms = api.get_library_user_permissions(
+            #     usage_key.lib_key, self.request.user
+            # )
+            # if not perms:
+            #     api.set_library_user_permissions(
+            #         usage_key.lib_key, self.request.user, api.AccessLevel.ADMIN_LEVEL
+            #     )
+            log.info("Logged in user: %s", edx_user)
+        else:
+            log.warning(
+                "Unable to login user %s from iss %s with aud %s)",
+                self.launch_data["sub"],
+                self.launch_data["iss"],
+                self.launch_data["aud"],
             )
-            if not perms:
-                api.set_library_user_permissions(
-                    usage_key.lib_key, self.request.user, api.AccessLevel.ADMIN_LEVEL
-                )
 
         return edx_user
 
@@ -236,7 +244,7 @@ class LtiToolLaunchView(TemplateResponseMixin, LtiToolView):
             return self._bad_request_response()
 
         # TODO: Probably change this into a UsageKey
-        usage_key = LibraryUsageLocatorV2.from_string(usage_key_str)
+        usage_key = UsageKey.from_string(usage_key_str)
         log.info("LTI 1.3: Launch block: id=%s", usage_key)
 
         # Authenticate the launch and setup LTI profiles.
@@ -246,8 +254,8 @@ class LtiToolLaunchView(TemplateResponseMixin, LtiToolView):
             return self._bad_request_response()
 
         # Get the block.
-
-        self.block = xblock_api.load_block(usage_key, user=self.request.user)
+        # NOTE: We don't need this
+        # self.block = xblock_api.load_block(usage_key, user=self.request.user)
 
         # Handle Assignment and Grade Service request.
 
@@ -256,8 +264,8 @@ class LtiToolLaunchView(TemplateResponseMixin, LtiToolView):
 
         # Render context and response.
         # TODO: Probably use the same rendering from lti 1.1 here for simplicity
-        context = self.get_context_data()
-        response = self.render_to_response(context)
+        # context = self.get_context_data()
+        response = render_courseware(request, usage_key)
         mark_user_change_as_expected(edx_user.id)
         return response
 
@@ -317,3 +325,20 @@ class LtiToolJwksView(LtiToolView):
         Return the JWKS.
         """
         return JsonResponse(self.lti_tool_config.get_jwks(), safe=False)
+
+
+# This was taken from lms/djangoapps/lti_provider
+def render_courseware(request, usage_key):
+    """
+    Render the content requested for the LTI launch.
+    TODO: This method depends on the current refactoring work on the
+    courseware/courseware.html template. It's signature may change depending on
+    the requirements for that template once the refactoring is complete.
+
+    Return an HttpResponse object that contains the template and necessary
+    context to render the courseware.
+    """
+    # return an HttpResponse object that contains the template and necessary context to render the courseware.
+    from lms.djangoapps.courseware.views.views import render_xblock
+
+    return render_xblock(request, str(usage_key), check_if_enrolled=False)
