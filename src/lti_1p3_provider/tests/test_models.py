@@ -10,129 +10,12 @@ from django.test import TestCase
 from django.test import RequestFactory
 from django.contrib.auth import get_user_model
 
-from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiToolKey
 
-from organizations.models import Organization
-from opaque_keys.edx.locator import LibraryLocatorV2, LibraryUsageLocatorV2
+from opaque_keys.edx.locator import LibraryUsageLocatorV2
 
-from ..models import ALL_RIGHTS_RESERVED
-from ..models import COMPLEX
-from ..models import ContentLibrary
-from ..models import LtiGradedResource
-from ..models import LtiProfile
-from ..models import LtiTool
-
-
-class ContentLibraryTest(TestCase):
-    """
-    Tests for ContentLibrary model.
-    """
-
-    def _create_library(self, **kwds):
-        """
-        Create a library model, without a blockstore bundle attached to it.
-        """
-        org = Organization.objects.create(name='foo', short_name='foo')
-        return ContentLibrary.objects.create(
-            org=org,
-            slug='foobar',
-            type=COMPLEX,
-            bundle_uuid=uuid.uuid4(),
-            allow_public_learning=False,
-            allow_public_read=False,
-            license=ALL_RIGHTS_RESERVED,
-            **kwds,
-        )
-
-    def test_authorize_lti_launch_when_no_library(self):
-        """
-        Given no library
-        When authorize_lti_launch is called
-        Then return False
-        """
-        self.assertFalse(ContentLibrary.objects.exists())
-        authorized = ContentLibrary.authorize_lti_launch(
-            LibraryLocatorV2(org='foo', slug='foobar'),
-            issuer='http://a-fake-issuer',
-            client_id='a-fake-client-id')
-        self.assertFalse(authorized)
-
-    def test_authorize_lti_launch_when_null(self):
-        """
-        Given a library WITHOUT an lti tool set
-        When authorize_lti_launch is called
-        Then return False
-        """
-        library = self._create_library()
-        authorized = ContentLibrary.authorize_lti_launch(
-            library.library_key,
-            issuer='http://a-fake-issuer',
-            client_id='a-fake-client-id')
-        self.assertFalse(authorized)
-
-    def test_authorize_lti_launch_when_not_null(self):
-        """
-        Given a library WITH an lti tool set
-        When authorize_lti_launch is called with different issuers
-        Then return False
-        """
-        issuer = 'http://a-fake-issuer'
-        client_id = 'a-fake-client-id'
-        library = self._create_library()
-        library.authorized_lti_configs.add(LtiTool.objects.create(
-            issuer=issuer,
-            client_id=client_id,
-            tool_key=LtiToolKey.objects.create()
-        ))
-        authorized = ContentLibrary.authorize_lti_launch(
-            library.library_key,
-            issuer='http://another-fake-issuer',
-            client_id='another-fake-client-id')
-        self.assertFalse(authorized)
-
-    def test_authorize_lti_launch_when_not_null_and_inactive(self):
-        """
-        Given a library WITH an lti tool set
-        When authorize_lti_launch is called with the same issuers
-        And lti tool is inactive
-        Then return False
-        """
-        issuer = 'http://a-fake-issuer'
-        client_id = 'a-fake-client-id'
-        library = self._create_library()
-        library.authorized_lti_configs.add(LtiTool.objects.create(
-            issuer=issuer,
-            client_id=client_id,
-            is_active=False,
-            tool_key=LtiToolKey.objects.create()
-        ))
-        authorized = ContentLibrary.authorize_lti_launch(
-            library.library_key,
-            issuer='http://another-fake-issuer',
-            client_id='another-fake-client-id')
-        self.assertFalse(authorized)
-
-    def test_authorize_lti_launch_when_not_null_and_active(self):
-        """
-        Given a library WITH an lti tool set
-        When authorize_lti_launch is called with the same issuers
-        And lti tool is active
-        Then return True
-        """
-        issuer = 'http://a-fake-issuer'
-        client_id = 'a-fake-client-id'
-        library = self._create_library()
-        library.authorized_lti_configs.add(LtiTool.objects.create(
-            issuer=issuer,
-            client_id=client_id,
-            is_active=True,  # redudant since it defaults to True
-            tool_key=LtiToolKey.objects.create()
-        ))
-        authorized = ContentLibrary.authorize_lti_launch(
-            library.library_key,
-            issuer=issuer,
-            client_id=client_id)
-        self.assertTrue(authorized)
+from lti_1p3_provider.models import LtiGradedResource
+from lti_1p3_provider.models import LtiProfile
+from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool
 
 
 class LtiProfileTest(TestCase):
@@ -142,7 +25,7 @@ class LtiProfileTest(TestCase):
 
     def test_get_from_claims_doesnotexists(self):
         with self.assertRaises(LtiProfile.DoesNotExist):
-            LtiProfile.objects.get_from_claims(iss='iss', aud='aud', sub='sub')
+            LtiProfile.objects.get_from_claims(iss="iss", aud="aud", sub="sub")
 
     def test_get_from_claims_exists(self):
         """
@@ -151,35 +34,33 @@ class LtiProfileTest(TestCase):
         Then return the same object.
         """
 
-        iss = 'http://foo.example.com/'
-        sub = 'randomly-selected-sub-for-testing'
-        aud = 'randomly-selected-aud-for-testing'
+        iss = "http://foo.example.com/"
+        sub = "randomly-selected-sub-for-testing"
+        aud = "randomly-selected-aud-for-testing"
         profile = LtiProfile.objects.create(
-            platform_id=iss,
-            client_id=aud,
-            subject_id=sub)
+            platform_id=iss, client_id=aud, subject_id=sub
+        )
 
-        queried_profile = LtiProfile.objects.get_from_claims(
-            iss=iss, aud=aud, sub=sub)
+        queried_profile = LtiProfile.objects.get_from_claims(iss=iss, aud=aud, sub=sub)
 
         self.assertEqual(
             queried_profile,
             profile,
-            'The queried profile is equal to the profile created.')
+            "The queried profile is equal to the profile created.",
+        )
 
     def test_subject_url(self):
         """
         Given a profile
         Then has a valid subject_url.
         """
-        iss = 'http://foo.example.com'
-        sub = 'randomly-selected-sub-for-testing'
-        aud = 'randomly-selected-aud-for-testing'
-        expected_url = 'http://foo.example.com/randomly-selected-aud-for-testing/randomly-selected-sub-for-testing'
+        iss = "http://foo.example.com"
+        sub = "randomly-selected-sub-for-testing"
+        aud = "randomly-selected-aud-for-testing"
+        expected_url = "http://foo.example.com/randomly-selected-aud-for-testing/randomly-selected-sub-for-testing"
         profile = LtiProfile.objects.create(
-            platform_id=iss,
-            client_id=aud,
-            subject_id=sub)
+            platform_id=iss, client_id=aud, subject_id=sub
+        )
         self.assertEqual(expected_url, profile.subject_url)
 
     def test_create_with_user(self):
@@ -189,16 +70,16 @@ class LtiProfileTest(TestCase):
         Then a user is created.
         """
 
-        iss = 'http://foo.example.com/'
-        sub = 'randomly-selected-sub-for-testing'
-        aud = 'randomly-selected-aud-for-testing'
+        iss = "http://foo.example.com/"
+        sub = "randomly-selected-sub-for-testing"
+        aud = "randomly-selected-aud-for-testing"
         profile = LtiProfile.objects.create(
-            platform_id=iss,
-            client_id=aud,
-            subject_id=sub)
+            platform_id=iss, client_id=aud, subject_id=sub
+        )
         self.assertIsNotNone(profile.user)
         self.assertTrue(
-            profile.user.username.startswith('urn:openedx:content_libraries:username:'))
+            profile.user.username.startswith("urn:openedx:content_libraries:username:")
+        )
 
     def test_get_or_create_from_claims(self):
         """
@@ -207,16 +88,20 @@ class LtiProfileTest(TestCase):
         And get or create again
         Then the same profile is returned.
         """
-        iss = 'http://foo.example.com/'
-        sub = 'randomly-selected-sub-for-testing'
-        aud = 'randomly-selected-aud-for-testing'
+        iss = "http://foo.example.com/"
+        sub = "randomly-selected-sub-for-testing"
+        aud = "randomly-selected-aud-for-testing"
         self.assertFalse(LtiProfile.objects.exists())
-        profile = LtiProfile.objects.get_or_create_from_claims(iss=iss, aud=aud, sub=sub)
+        profile = LtiProfile.objects.get_or_create_from_claims(
+            iss=iss, aud=aud, sub=sub
+        )
         self.assertIsNotNone(profile.user)
         self.assertEqual(iss, profile.platform_id)
         self.assertEqual(sub, profile.subject_id)
 
-        profile_two = LtiProfile.objects.get_or_create_from_claims(iss=iss, aud=aud, sub=sub)
+        profile_two = LtiProfile.objects.get_or_create_from_claims(
+            iss=iss, aud=aud, sub=sub
+        )
         self.assertEqual(profile_two, profile)
 
     def test_get_or_create_from_claims_twice(self):
@@ -225,10 +110,10 @@ class LtiProfileTest(TestCase):
         When another profile is created
         Then success
         """
-        iss = 'http://foo.example.com/'
-        aud = 'randomly-selected-aud-for-testing'
-        sub_one = 'randomly-selected-sub-for-testing'
-        sub_two = 'another-randomly-sub-for-testing'
+        iss = "http://foo.example.com/"
+        aud = "randomly-selected-aud-for-testing"
+        sub_one = "randomly-selected-sub-for-testing"
+        sub_two = "another-randomly-sub-for-testing"
         self.assertFalse(LtiProfile.objects.exists())
         LtiProfile.objects.get_or_create_from_claims(iss=iss, aud=aud, sub=sub_one)
         LtiProfile.objects.get_or_create_from_claims(iss=iss, aud=aud, sub=sub_two)
@@ -239,11 +124,11 @@ class LtiResourceTest(TestCase):
     LtiGradedResource model tests.
     """
 
-    iss = 'fake-iss-for-test'
+    iss = "fake-iss-for-test"
 
-    sub = 'fake-sub-for-test'
+    sub = "fake-sub-for-test"
 
-    aud = 'fake-aud-for-test'
+    aud = "fake-aud-for-test"
 
     def setUp(self):
         super().setUp()
@@ -255,13 +140,14 @@ class LtiResourceTest(TestCase):
             LtiGradedResource.objects.get_from_user_id(user_id)
 
     def test_get_from_user_id_when_no_profile_then_not_found(self):
-        user = get_user_model().objects.create(username='foobar')
+        user = get_user_model().objects.create(username="foobar")
         with self.assertRaises(LtiGradedResource.DoesNotExist):
             LtiGradedResource.objects.get_from_user_id(user.pk)
 
     def test_get_from_user_id_when_profile_then_found(self):
         profile = LtiProfile.objects.get_or_create_from_claims(
-            iss=self.iss, aud=self.aud, sub=self.sub)
+            iss=self.iss, aud=self.aud, sub=self.sub
+        )
         LtiGradedResource.objects.create(profile=profile)
         resource = LtiGradedResource.objects.get_from_user_id(profile.user.pk)
         self.assertEqual(profile, resource.profile)
@@ -273,14 +159,14 @@ class LtiResourceTest(TestCase):
         Then created at first, retrieved at second.
         """
 
-        resource_id = 'resource-foobar'
-        usage_key = 'lb:foo:bar:fooz:barz'
-        lineitem = 'http://canvas.docker/api/lti/courses/1/line_items/7'
+        resource_id = "resource-foobar"
+        usage_key = "lb:foo:bar:fooz:barz"
+        lineitem = "http://canvas.docker/api/lti/courses/1/line_items/7"
         resource_endpoint = {
             "lineitem": lineitem,
             "scope": [
                 "https://purl.imsglobal.org/spec/lti-ags/scope/lineitem",
-                "https://purl.imsglobal.org/spec/lti-ags/scope/score"
+                "https://purl.imsglobal.org/spec/lti-ags/scope/score",
             ],
         }
         resource_link = {
@@ -289,11 +175,13 @@ class LtiResourceTest(TestCase):
         }
 
         profile = LtiProfile.objects.get_or_create_from_claims(
-            iss=self.iss, aud=self.aud, sub=self.sub)
+            iss=self.iss, aud=self.aud, sub=self.sub
+        )
         block_mock = mock.Mock()
         block_mock.scope_ids.usage_id = LibraryUsageLocatorV2.from_string(usage_key)
         res = LtiGradedResource.objects.upsert_from_ags_launch(
-            profile.user, block_mock, resource_endpoint, resource_link)
+            profile.user, block_mock, resource_endpoint, resource_link
+        )
 
         self.assertEqual(resource_id, res.resource_id)
         self.assertEqual(lineitem, res.ags_lineitem)
@@ -301,6 +189,7 @@ class LtiResourceTest(TestCase):
         self.assertEqual(profile, res.profile)
 
         res2 = LtiGradedResource.objects.upsert_from_ags_launch(
-            profile.user, block_mock, resource_endpoint, resource_link)
+            profile.user, block_mock, resource_endpoint, resource_link
+        )
 
         self.assertEqual(res, res2)
