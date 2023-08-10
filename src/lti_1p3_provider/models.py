@@ -42,7 +42,9 @@ from django.utils.translation import gettext_lazy as _
 from opaque_keys.edx.django.models import UsageKeyField
 from pylti1p3.contrib.django import DjangoDbToolConf, DjangoMessageLaunch
 from pylti1p3.grade import Grade
+from lms.djangoapps.lti_provider.users import generate_random_edx_username
 
+EDX_LTI_EMAIL_DOMAIN = "edx-lti-1p3.com"
 
 log = logging.getLogger(__name__)
 
@@ -132,10 +134,9 @@ class LtiProfile(models.Model):
         Get or create an edx user on save.
         """
         if not self.user:
-            uid = uuid.uuid5(uuid.NAMESPACE_URL, self.subject_url)
-            username = f"urn:openedx:content_libraries:username:{uid}"
+            username = generate_random_edx_username()
             # NOTE: Changed @{ContentLibrariesConfig.name}
-            email = f"{uid}@edx-lti.com"
+            email = f"{username}@{EDX_LTI_EMAIL_DOMAIN}"
             with transaction.atomic():
                 if self.user is None:
                     self.user, created = User.objects.get_or_create(
