@@ -130,24 +130,12 @@ class LtiToolLaunchView(LtiToolView):
         authenticate the LTI user associated with it.
         """
 
-        # Check library authorization.
-
-        # TODO: Update this check appropriately
-        log.warning("Check ContentLibrary.authiorize_lti_launch")
-        # if not ContentLibrary.authorize_lti_launch(
-        #     usage_key.lib_key,
-        #     issuer=self.launch_data["iss"],
-        #     client_id=self.launch_data["aud"],
-        # ):
-        #     return None
-
-        # Check LTI profile.
-
         LtiProfile.objects.get_or_create_from_claims(
             iss=self.launch_data["iss"],
             aud=self.launch_data["aud"],
             sub=self.launch_data["sub"],
         )
+        # TODO: See if this could conflict with the content_libraries.auth imp
         edx_user = authenticate(
             self.request,
             iss=self.launch_data["iss"],
@@ -157,14 +145,6 @@ class LtiToolLaunchView(LtiToolView):
 
         if edx_user is not None:
             login(self.request, edx_user)
-            # TODO: Do we need any of this?
-            # perms = api.get_library_user_permissions(
-            #     usage_key.lib_key, self.request.user
-            # )
-            # if not perms:
-            #     api.set_library_user_permissions(
-            #         usage_key.lib_key, self.request.user, api.AccessLevel.ADMIN_LEVEL
-            #     )
             log.info("Logged in user: %s", edx_user)
         else:
             log.warning(
@@ -181,31 +161,6 @@ class LtiToolLaunchView(LtiToolView):
         A default response for bad requests.
         """
         return HttpResponseBadRequest("Invalid LTI tool launch.")
-
-    def get_context_data(self):
-        """
-        Setup the template context data.
-        """
-
-        handler_urls = {
-            str(key): xblock_api.get_handler_url(key, "handler_name", self.request.user)
-            for key in itertools.chain(
-                [self.block.scope_ids.usage_id], getattr(self.block, "children", [])
-            )
-        }
-
-        # We are defaulting to student view due to current use case (resource
-        # link launches).  Launches within other views are not currently
-        # supported.
-        fragment = self.block.render("student_view")
-        lms_root_url = configuration_helpers.get_value(
-            "LMS_ROOT_URL", settings.LMS_ROOT_URL
-        )
-        return {
-            "fragment": fragment,
-            "handler_urls_json": json.dumps(handler_urls),
-            "lms_root_url": lms_root_url,
-        }
 
     def get_launch_message(self):
         """
@@ -236,35 +191,25 @@ class LtiToolLaunchView(LtiToolView):
 
         log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
 
-        # Parse content key.
-
         # TODO: It's a POST but they are expecting some GET params?
+        # NOTE: using QPs means client has to encode the '+'s
+        # NOTE: Probably change this to a url-path var
         usage_key_str = request.GET.get("id")
         if not usage_key_str:
             return self._bad_request_response()
 
-        # TODO: Probably change this into a UsageKey
         usage_key = UsageKey.from_string(usage_key_str)
         log.info("LTI 1.3: Launch block: id=%s", usage_key)
-
-        # Authenticate the launch and setup LTI profiles.
 
         edx_user = self._authenticate_and_login(usage_key)
         if not edx_user:
             return self._bad_request_response()
-
-        # Get the block.
-        # NOTE: We don't need this
-        # self.block = xblock_api.load_block(usage_key, user=self.request.user)
-
-        # Handle Assignment and Grade Service request.
 
         # TODO: Evaluate if we need to update this?
         self.handle_ags()
 
         # Render context and response.
         # TODO: Probably use the same rendering from lti 1.1 here for simplicity
-        # context = self.get_context_data()
         response = render_courseware(request, usage_key)
         mark_user_change_as_expected(edx_user.id)
         return response
@@ -272,10 +217,8 @@ class LtiToolLaunchView(LtiToolView):
     def handle_ags(self):
         """
         Handle AGS-enabled launches for block in the request.
+        # NOTE: No test coverage here
         """
-
-        # Validate AGS.
-
         if not self.launch_message.has_ags():
             return
 
