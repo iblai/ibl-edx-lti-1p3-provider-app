@@ -73,13 +73,15 @@ class LtiProfileTest(TestCase):
         iss = "http://foo.example.com/"
         sub = "randomly-selected-sub-for-testing"
         aud = "randomly-selected-aud-for-testing"
-        profile = LtiProfile.objects.create(
-            platform_id=iss, client_id=aud, subject_id=sub
-        )
+        with mock.patch(
+            "lti_1p3_provider.models.generate_random_edx_username",
+            return_value="rando-username",
+        ):
+            profile = LtiProfile.objects.create(
+                platform_id=iss, client_id=aud, subject_id=sub
+            )
         self.assertIsNotNone(profile.user)
-        self.assertTrue(
-            profile.user.username.startswith("urn:openedx:content_libraries:username:")
-        )
+        self.assertEqual(profile.user.username, "rando-username")
 
     def test_get_or_create_from_claims(self):
         """
