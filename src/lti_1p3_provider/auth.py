@@ -16,7 +16,7 @@ from .models import LtiProfile
 log = logging.getLogger(__name__)
 
 
-class LtiAuthenticationBackend(ModelBackend):
+class Lti1p3AuthenticationBackend(ModelBackend):
     """
     Authenticate based on content library LTI profile.
 
@@ -29,15 +29,15 @@ class LtiAuthenticationBackend(ModelBackend):
         """
         Authenticate if the user in the request has an LTI profile.
         """
-        log.info('LTI 1.3 authentication: iss=%s, sub=%s', iss, sub)
+        log.info("LTI 1.3 authentication: iss=%s, sub=%s", iss, sub)
         try:
-            lti_profile = LtiProfile.objects.get_from_claims(
-                iss=iss, aud=aud, sub=sub)
+            lti_profile = LtiProfile.objects.get_from_claims(iss=iss, aud=aud, sub=sub)
         except LtiProfile.DoesNotExist:
             return None
         user = lti_profile.user
-        log.info('LTI 1.3 authentication profile: profile=%s user=%s',
-                 lti_profile, user)
+        log.info(
+            "LTI 1.3 authentication profile: profile=%s user=%s", lti_profile, user
+        )
         if user and self.user_can_authenticate(user):
             return user
         return None
