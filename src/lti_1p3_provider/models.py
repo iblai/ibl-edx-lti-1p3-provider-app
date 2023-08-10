@@ -164,7 +164,7 @@ class LtiGradedResourceManager(models.Manager):
         resource_id = resource_link["id"]
         resource_title = resource_link.get("title") or None
         lineitem = resource_endpoint["lineitem"]
-        lti_profile = user.contentlibraries_lti_profile
+        lti_profile = user.lti_1p3_provider_lti_profile
         resource, _ = self.update_or_create(
             profile=lti_profile,
             usage_key=block.scope_ids.usage_id,
@@ -184,7 +184,7 @@ class LtiGradedResourceManager(models.Manager):
             user = get_user_model().objects.get(pk=user_id)
         except get_user_model().DoesNotExist as exc:
             raise self.model.DoesNotExist("User specified was not found.") from exc
-        profile = getattr(user, "contentlibraries_lti_profile", None)
+        profile = getattr(user, "lti_1p3_provider_lti_profile", None)
         if not profile:
             raise self.model.DoesNotExist("User does not have a LTI profile.")
         kwds["profile"] = profile
