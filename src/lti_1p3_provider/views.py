@@ -7,6 +7,7 @@ This module contains the REST APIs for blockstore-based content libraries, and
 LTI 1.3 views.
 """
 
+from __future__ import annotations
 
 import itertools
 import json
@@ -21,7 +22,8 @@ from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import View
-from opaque_keys.edx.keys import UsageKey
+from opaque_keys.edx.keys import UsageKey, CourseKey
+from opaque_keys import InvalidKeyError
 from openedx.core.djangoapps.content_libraries import api
 from openedx.core.djangoapps.safe_sessions.middleware import (
     mark_user_change_as_expected,
@@ -122,7 +124,7 @@ class LtiToolLaunchView(LtiToolView):
     def launch_data(self):
         return self.launch_message.get_launch_data()
 
-    def _authenticate_and_login(self, usage_key):
+    def _authenticate_and_login(self):
         """
         Authenticate and authorize the user for this LTI message launch.
 
@@ -176,7 +178,7 @@ class LtiToolLaunchView(LtiToolView):
         return launch_message
 
     # pylint: disable=attribute-defined-outside-init
-    def post(self, request):
+    def post(self, request, course_id: str, usage_id: str):
         """
         Process LTI platform launch requests.
         """
@@ -184,24 +186,24 @@ class LtiToolLaunchView(LtiToolView):
         # Parse LTI launch message.
 
         try:
+            course_key, usage_key = self._parse_course_and_usage_keys(
+                course_id, usage_id
+            )
+            log.info("LTI 1.3: Launch course=%s, block: id=%s", course_key, usage_key)
             self.launch_message = self.get_launch_message()
+
+        except InvalidKeyError as e:
+            log.error("Invalid Launch Course or UsageKey - %s")
+            # TODO: Improve this to be more specific
+            return HttpResponseBadRequest(f"Invalid Course or Key: {e}")
+
         except LtiException as exc:
             log.exception("LTI 1.3: Tool launch failed: %s", exc)
             return self._bad_request_response()
 
         log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
 
-        # TODO: It's a POST but they are expecting some GET params?
-        # NOTE: using QPs means client has to encode the '+'s
-        # NOTE: Probably change this to a url-path var
-        usage_key_str = request.GET.get("id")
-        if not usage_key_str:
-            return self._bad_request_response()
-
-        usage_key = UsageKey.from_string(usage_key_str)
-        log.info("LTI 1.3: Launch block: id=%s", usage_key)
-
-        edx_user = self._authenticate_and_login(usage_key)
+        edx_user = self._authenticate_and_login()
         if not edx_user:
             return self._bad_request_response()
 
@@ -213,6 +215,14 @@ class LtiToolLaunchView(LtiToolView):
         response = render_courseware(request, usage_key)
         mark_user_change_as_expected(edx_user.id)
         return response
+
+    def _parse_course_and_usage_keys(
+        self, course_id: str, usage_id: str
+    ) -> tuple[CourseKey, UsageKey]:
+        """Return CourseKey and UsageKey from course_id and usage_id"""
+        course_key = CourseKey.formatter(course_id)
+        usage_key = UsageKey.from_string(usage_id).map_into_course(course_key)
+        return course_key, usage_key
 
     def handle_ags(self):
         """
@@ -251,6 +261,7 @@ class LtiToolLaunchView(LtiToolView):
         resource_claim = "https://purl.imsglobal.org/spec/lti/claim/resource_link"
         resource_link = self.launch_data.get(resource_claim)
 
+        # TODO: Check exactly what upsert is doing and if we need to modify it
         resource = LtiGradedResource.objects.upsert_from_ags_launch(
             self.request.user, self.block, endpoint, resource_link
         )
