@@ -39,7 +39,7 @@ import uuid
 from django.contrib.auth import get_user_model
 from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
-from opaque_keys.edx.django.models import UsageKeyField
+from opaque_keys.edx.django.models import UsageKeyField, CourseKeyField
 from pylti1p3.contrib.django import DjangoDbToolConf, DjangoMessageLaunch
 from pylti1p3.grade import Grade
 from lms.djangoapps.lti_provider.users import generate_random_edx_username
@@ -79,7 +79,7 @@ class LtiProfile(models.Model):
 
     Unless Anonymous, this should be a unique representation of the LTI subject
     (as per the client token ``sub`` identify claim) that initiated an LTI
-    launch through Content Libraries.
+    launch through the LTI 1.3 Provider.
     """
 
     objects = LtiProfileManager()
@@ -96,7 +96,7 @@ class LtiProfile(models.Model):
     platform_id = models.CharField(
         max_length=255,
         verbose_name=_("lti platform identifier"),
-        help_text=_("The LTI platform identifier to which this profile belongs " "to."),
+        help_text=_("The LTI platform identifier to which this profile belongs to."),
     )
 
     client_id = models.CharField(
@@ -109,8 +109,7 @@ class LtiProfile(models.Model):
         max_length=255,
         verbose_name=_("subject identifier"),
         help_text=_(
-            "Identifies the entity that initiated the launch request, "
-            "commonly a user."
+            "Identifies the entity that initiated the launch request, commonly a user."
         ),
     )
 
@@ -213,12 +212,14 @@ class LtiGradedResource(models.Model):
         ),
     )
 
+    course_key = CourseKeyField(
+        max_length=255,
+        help_text=_("The course key string the usage_key belongs to"),
+    )
+
     usage_key = UsageKeyField(
         max_length=255,
-        help_text=_(
-            "The usage key string of the blockstore resource serving the "
-            "content of this launch."
-        ),
+        help_text=_("The usage key string of entity being served"),
     )
 
     resource_id = models.CharField(
@@ -242,6 +243,7 @@ class LtiGradedResource(models.Model):
             "If AGS was enabled during launch, this should hold the lineitem ID."
         ),
     )
+    version_number = models.IntegerField(default=0)
 
     class Meta:
         unique_together = ["usage_key", "profile"]
