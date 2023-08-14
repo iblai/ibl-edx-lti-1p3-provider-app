@@ -156,7 +156,9 @@ class LtiGradedResourceManager(models.Manager):
     A custom manager for the graded resources model.
     """
 
-    def upsert_from_ags_launch(self, user, block, resource_endpoint, resource_link):
+    def upsert_from_ags_launch(
+        self, user, course_key, usage_key, resource_endpoint, resource_link
+    ):
         """
         Update or create a graded resource at AGS launch.
         """
@@ -166,7 +168,8 @@ class LtiGradedResourceManager(models.Manager):
         lti_profile = user.lti_1p3_provider_lti_profile
         resource, _ = self.update_or_create(
             profile=lti_profile,
-            usage_key=block.scope_ids.usage_id,
+            course_key=course_key,
+            usage_key=usage_key,
             defaults={
                 "resource_title": resource_title,
                 "resource_id": resource_id,

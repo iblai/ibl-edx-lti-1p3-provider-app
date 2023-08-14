@@ -207,11 +207,9 @@ class LtiToolLaunchView(LtiToolView):
         if not edx_user:
             return self._bad_request_response()
 
-        # TODO: Evaluate if we need to update this?
-        self.handle_ags()
+        self.handle_ags(course_key, usage_key)
 
         # Render context and response.
-        # TODO: Probably use the same rendering from lti 1.1 here for simplicity
         response = render_courseware(request, usage_key)
         mark_user_change_as_expected(edx_user.id)
         return response
@@ -224,7 +222,7 @@ class LtiToolLaunchView(LtiToolView):
         usage_key = UsageKey.from_string(usage_id).map_into_course(course_key)
         return course_key, usage_key
 
-    def handle_ags(self):
+    def handle_ags(self, course_key: CourseKey, usage_key: UsageKey) -> None:
         """
         Handle AGS-enabled launches for block in the request.
         # NOTE: No test coverage here
@@ -247,6 +245,7 @@ class LtiToolLaunchView(LtiToolView):
                     scope,
                 )
                 return
+
         lineitem = endpoint.get("lineitem")
         if not lineitem:
             log.info(
@@ -257,13 +256,10 @@ class LtiToolLaunchView(LtiToolView):
             return
 
         # Create graded resource in the database for the current launch.
-
         resource_claim = "https://purl.imsglobal.org/spec/lti/claim/resource_link"
         resource_link = self.launch_data.get(resource_claim)
-
-        # TODO: Check exactly what upsert is doing and if we need to modify it
         resource = LtiGradedResource.objects.upsert_from_ags_launch(
-            self.request.user, self.block, endpoint, resource_link
+            self.request.user, course_key, usage_key, endpoint, resource_link
         )
 
         log.info("LTI 1.3: AGS: Upserted LTI graded resource from launch: %s", resource)
