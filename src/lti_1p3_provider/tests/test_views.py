@@ -26,7 +26,8 @@ class TestLtiToolLoginView:
 
     @override_features(ENABLE_LTI_1P3_PROVIDER=True)
     @pytest.mark.parametrize("method", ("get", "post"))
-    def test_login_initiations(self, method, client):
+    def test_successful_login_init_returns_302(self, method, client):
+        """Test successful login init returns 302 for GET or POST"""
         tool = factories.LtiToolFactory()
         qps_in = factories.OidcLoginFactory()
 
@@ -34,7 +35,6 @@ class TestLtiToolLoginView:
 
         parsed = parse.urlparse(resp.url)
         qps = parse.parse_qs(parsed.query)
-
         assert qps["scope"] == ["openid"]
         assert qps["response_type"] == ["id_token"]
         assert qps["response_mode"] == ["form_post"]
