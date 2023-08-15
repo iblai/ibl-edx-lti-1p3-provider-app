@@ -20,11 +20,12 @@ from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import View
-from opaque_keys.edx.keys import UsageKey, CourseKey
 from opaque_keys import InvalidKeyError
+from opaque_keys.edx.keys import CourseKey, UsageKey
 from openedx.core.djangoapps.safe_sessions.middleware import (
     mark_user_change_as_expected,
 )
+from openedx.core.lib.url_utils import unquote_slashes
 from pylti1p3.contrib.django import (
     DjangoCacheDataStorage,
     DjangoDbToolConf,
@@ -288,3 +289,18 @@ def render_courseware(request, usage_key):
     from lms.djangoapps.courseware.views.views import render_xblock
 
     return render_xblock(request, str(usage_key), check_if_enrolled=False)
+
+
+def parse_course_and_usage_keys(course_id, usage_id):
+    """
+    Convert course and usage ID strings into key objects. Return a tuple of
+    (course_key, usage_key), or throw an InvalidKeyError if the translation
+    fails.
+
+    NOTE: Taken from lms.djangoapps.lti_provider.views. We could use their version
+    but then would have to enable LTI 1.1 provider for it to be in installed apps.
+    """
+    course_key = CourseKey.from_string(course_id)
+    usage_id = unquote_slashes(usage_id)
+    usage_key = UsageKey.from_string(usage_id).map_into_course(course_key)
+    return course_key, usage_key
