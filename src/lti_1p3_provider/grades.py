@@ -1,4 +1,27 @@
+from xmodule.modulestore.django import modulestore
+
 from .models import LtiGradedResource
+
+
+def increment_assignment_versions(course_key, usage_key, user_id):
+    """
+    Update the version numbers for all assignments that are affected by a score
+    change event. Returns a list of all affected assignments.
+
+    NOTE: Taken from lms.djangoapps.lti_provider.signal_handlers
+
+    The only change is using our `get_assignments_for_problem` method
+    """
+    problem_descriptor = modulestore().get_item(usage_key)
+    # Get all assignments involving the current problem for which the campus LMS
+    # is expecting a grade. There may be many possible graded assignments, if
+    # a problem has been added several times to a course at different
+    # granularities (such as the unit or the vertical).
+    assignments = get_assignments_for_problem(problem_descriptor, user_id, course_key)
+    for assignment in assignments:
+        assignment.version_number += 1
+        assignment.save()
+    return assignments
 
 
 def get_assignments_for_problem(problem_descriptor, user_id, course_key):
