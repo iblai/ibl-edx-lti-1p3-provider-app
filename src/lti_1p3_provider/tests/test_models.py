@@ -3,19 +3,18 @@ Unit tests for Content Libraries models.
 """
 
 
-from unittest import mock
 import uuid
+from unittest import mock
 
-from django.test import TestCase
-from django.test import RequestFactory
 from django.contrib.auth import get_user_model
-
-
-from opaque_keys.edx.locator import LibraryUsageLocatorV2
-
-from lti_1p3_provider.models import LtiGradedResource
-from lti_1p3_provider.models import LtiProfile
+from django.test import RequestFactory, TestCase
+from opaque_keys.edx.keys import CourseKey, UsageKey
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool
+
+from lti_1p3_provider.models import LtiGradedResource, LtiProfile
+
+COURSE_KEY = CourseKey.from_string("course-v1:Org1+Course1+Run1")
+USAGE_KEY = COURSE_KEY.make_usage_key("problem", "some-html-id")
 
 
 class LtiProfileTest(TestCase):
@@ -162,7 +161,8 @@ class LtiResourceTest(TestCase):
         """
 
         resource_id = "resource-foobar"
-        usage_key = "lb:foo:bar:fooz:barz"
+        course_key = COURSE_KEY
+        usage_key = USAGE_KEY
         lineitem = "http://canvas.docker/api/lti/courses/1/line_items/7"
         resource_endpoint = {
             "lineitem": lineitem,
@@ -179,19 +179,18 @@ class LtiResourceTest(TestCase):
         profile = LtiProfile.objects.get_or_create_from_claims(
             iss=self.iss, aud=self.aud, sub=self.sub
         )
-        block_mock = mock.Mock()
-        block_mock.scope_ids.usage_id = LibraryUsageLocatorV2.from_string(usage_key)
         res = LtiGradedResource.objects.upsert_from_ags_launch(
-            profile.user, block_mock, resource_endpoint, resource_link
+            profile.user, course_key, usage_key, resource_endpoint, resource_link
         )
 
         self.assertEqual(resource_id, res.resource_id)
         self.assertEqual(lineitem, res.ags_lineitem)
-        self.assertEqual(usage_key, str(res.usage_key))
+        self.assertEqual(usage_key, res.usage_key)
         self.assertEqual(profile, res.profile)
+        self.assertEqual(course_key, res.course_key)
 
         res2 = LtiGradedResource.objects.upsert_from_ags_launch(
-            profile.user, block_mock, resource_endpoint, resource_link
+            profile.user, course_key, usage_key, resource_endpoint, resource_link
         )
 
         self.assertEqual(res, res2)
