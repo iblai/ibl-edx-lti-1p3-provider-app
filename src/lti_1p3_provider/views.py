@@ -9,11 +9,9 @@ LTI 1.3 views.
 
 from __future__ import annotations
 
-import itertools
 import json
 import logging
 
-import openedx.core.djangoapps.site_configuration.helpers as configuration_helpers
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login
 from django.http import Http404, HttpResponseBadRequest, JsonResponse
@@ -24,11 +22,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import View
 from opaque_keys.edx.keys import UsageKey, CourseKey
 from opaque_keys import InvalidKeyError
-from openedx.core.djangoapps.content_libraries import api
 from openedx.core.djangoapps.safe_sessions.middleware import (
     mark_user_change_as_expected,
 )
-from openedx.core.djangoapps.xblock import api as xblock_api
 from pylti1p3.contrib.django import (
     DjangoCacheDataStorage,
     DjangoDbToolConf,
