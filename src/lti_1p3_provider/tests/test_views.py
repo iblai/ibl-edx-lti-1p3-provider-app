@@ -2,10 +2,14 @@
 Tests for LTI views.
 """
 
+from urllib import parse
+
 import pytest
 from django.conf import settings
 from django.test import TestCase, override_settings
+from django.urls import reverse
 
+from . import factories
 from .base import URL_LIB_LTI_JWKS
 
 
@@ -14,6 +18,36 @@ def override_features(**kwargs):
     Wrapps ``override_settings`` to override ``settings.FEATURES``.
     """
     return override_settings(FEATURES={**settings.FEATURES, **kwargs})
+
+
+@pytest.mark.django_db
+class TestLtiToolLoginView:
+    endpoint = reverse("lti_1p3_provider:lti-login")
+
+    @override_features(ENABLE_LTI_1P3_PROVIDER=True)
+    @pytest.mark.parametrize("method", ("get", "post"))
+    def test_login_initiations(self, method, client):
+        tool = factories.LtiToolFactory()
+        qps_in = factories.OidcLoginFactory()
+
+        resp = getattr(client, method)(self.endpoint, qps_in)
+
+        parsed = parse.urlparse(resp.url)
+        qps = parse.parse_qs(parsed.query)
+
+        assert qps["scope"] == ["openid"]
+        assert qps["response_type"] == ["id_token"]
+        assert qps["response_mode"] == ["form_post"]
+        assert qps["prompt"] == ["none"]
+        assert qps["client_id"] == [tool.client_id]
+        assert qps["login_hint"] == [qps_in["login_hint"]]
+        assert qps["redirect_uri"] == [qps_in["target_link_uri"]]
+
+        # Just make sure these aren't empty
+        assert qps["state"]
+        assert qps["nonce"]
+
+        assert resp.status_code == 302
 
 
 @pytest.mark.django_db
