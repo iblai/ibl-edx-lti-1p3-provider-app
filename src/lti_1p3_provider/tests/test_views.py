@@ -20,11 +20,18 @@ def override_features(**kwargs):
     return override_settings(FEATURES={**settings.FEATURES, **kwargs})
 
 
+@pytest.fixture
+def enable_lti_provider():
+    """Enables the Lti 1.3 Provider"""
+    with override_features(ENABLE_LTI_1P3_PROVIDER=True):
+        yield
+
+
 @pytest.mark.django_db
+@pytest.mark.usefixtures("enable_lti_provider")
 class TestLtiToolLoginView:
     endpoint = reverse("lti_1p3_provider:lti-login")
 
-    @override_features(ENABLE_LTI_1P3_PROVIDER=True)
     @pytest.mark.parametrize("method", ("get", "post"))
     def test_successful_login_init_returns_302(self, method, client):
         """Test successful login init returns 302 for GET or POST"""
@@ -48,6 +55,25 @@ class TestLtiToolLoginView:
         assert qps["nonce"]
 
         assert resp.status_code == 302
+
+    def test_unknown_issuer_returns_400(self, client):
+        """If issuer is unknown, returns a 400"""
+        qps_in = factories.OidcLoginFactory()
+
+        resp = client.get(self.endpoint, qps_in)
+
+        assert resp.content == b"Invalid LTI login request."
+        assert resp.status_code == 400
+
+    def test_missing_issuer_returns_400(self, client):
+        """If issuer is missing, returns a 400"""
+        qps_in = factories.OidcLoginFactory()
+        qps_in.pop("iss")
+
+        resp = client.get(self.endpoint, qps_in)
+
+        assert resp.content == b"Invalid LTI login request."
+        assert resp.status_code == 400
 
 
 @pytest.mark.django_db
