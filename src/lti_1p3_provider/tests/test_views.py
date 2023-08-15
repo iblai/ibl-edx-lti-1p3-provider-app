@@ -2,11 +2,11 @@
 Tests for LTI views.
 """
 
+import pytest
 from django.conf import settings
 from django.test import TestCase, override_settings
 
 from .base import URL_LIB_LTI_JWKS
-import pytest
 
 
 def override_features(**kwargs):
