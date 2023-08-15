@@ -14,7 +14,7 @@ import logging
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login
-from django.http import Http404, HttpResponseBadRequest, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -98,7 +98,7 @@ class LtiToolLoginView(LtiToolView):
         ) or self.request.GET.get(self.LAUNCH_URI_PARAMETER)
         try:
             return oidc_login.redirect(launch_url)
-        except OIDCException as exc:
+        except (OIDCException, LtiException) as exc:
             # Relying on downstream error messages, attempt to sanitize it up
             # for customer facing errors.
             log.error("LTI OIDC login failed: %s", exc)
