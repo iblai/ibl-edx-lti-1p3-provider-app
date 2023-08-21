@@ -1,16 +1,42 @@
 """
 Tests for LTI views.
 """
+from __future__ import annotations
 
+import copy
+from unittest import mock
 from urllib import parse
 
+import jwt
 import pytest
 from django.conf import settings
-from django.test import TestCase, override_settings
+from django.http import HttpResponse
+from django.test import override_settings
 from django.urls import reverse
 
-from . import factories
+from lti_1p3_provider.views import LtiToolLaunchView
+
+from . import factories, fakes
 from .base import URL_LIB_LTI_JWKS
+
+
+def _get_target_link_uri(course_id, usage_id, domain="https://localhost") -> str:
+    """Return tool launch url for course_id, usage_id"""
+    endpoint = reverse(
+        "lti_1p3_provider:lti-launch",
+        kwargs={"course_id": course_id, "usage_id": usage_id},
+    )
+    return f"{domain}{endpoint}"
+
+
+def _encode_platform_jwt(data: dict, kid: str) -> str:
+    """Encode JWT"""
+    return jwt.encode(
+        data,
+        key=factories.PLATFORM_PRIVATE_KEY,
+        algorithm="RS256",
+        headers={"kid": kid},
+    )
 
 
 def override_features(**kwargs):
@@ -23,8 +49,12 @@ def override_features(**kwargs):
 @pytest.fixture
 def enable_lti_provider():
     """Enables the Lti 1.3 Provider"""
+    backends = settings.AUTHENTICATION_BACKENDS
+    backends.append("lti_1p3_provider.auth.Lti1p3AuthenticationBackend")
+
     with override_features(ENABLE_LTI_1P3_PROVIDER=True):
-        yield
+        with override_settings(AUTHENTICATION_BACKENDS=backends):
+            yield
 
 
 @pytest.mark.django_db
@@ -74,6 +104,73 @@ class TestLtiToolLoginView:
 
         assert resp.content == b"Invalid LTI login request."
         assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("enable_lti_provider")
+@mock.patch(
+    "pylti1p3.contrib.django.message_launch.DjangoSessionService",
+    new=fakes.FakeDjangoSessionService,
+)
+class TestLtiToolLaunchView:
+    login_endpoint = reverse("lti_1p3_provider:lti-login")
+
+    def setup_method(self):
+        self.tool = factories.LtiToolFactory()
+        self.kid = self.tool.to_dict()["key_set"]["keys"][0]["kid"]
+
+    def _get_launch_endpoint(self, course_id: str, usage_id: str) -> str:
+        return reverse(
+            "lti_1p3_provider:lti-launch",
+            kwargs={"course_id": course_id, "usage_id": usage_id},
+        )
+
+    def _get_payload(self, course_key, usage_key) -> dict:
+        """Generate and return payload with encoded id_token"""
+        target_link_uri = _get_target_link_uri(str(course_key), str(usage_key))
+        id_token = factories.IdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            target_link_uri=target_link_uri,
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        return {"state": "state", "id_token": encoded}
+
+    @mock.patch(
+        "pylti1p3.contrib.django.message_launch.DjangoSessionService",
+        new=fakes.FakeDjangoSessionService,
+    )
+    @mock.patch("lti_1p3_provider.views.render_courseware")
+    def test_successful_launch(self, mock_courseware, client):
+        mock_courseware.return_value = HttpResponse(status=200)
+        endpoint = self._get_launch_endpoint(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+
+        resp = client.post(endpoint, payload)
+
+        assert resp.status_code == 200
+
+    def test_unknown_course_key_returns_404(self, client):
+        """If the course is unknown, 404 is returned"""
+        endpoint = self._get_launch_endpoint(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+
+        resp = client.post(endpoint, payload)
+
+        assert resp.status_code == 404
+
+    def test_missing_iss_returns_400(self, client):
+        pass
+
+    def test_missing_aud_returns_400(self, client):
+        pass
+
+    def test_missing_sub_returns_400(self, client):
+        pass
 
 
 @pytest.mark.django_db
