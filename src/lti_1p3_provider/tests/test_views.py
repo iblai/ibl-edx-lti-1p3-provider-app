@@ -59,6 +59,15 @@ def enable_lti_provider():
 class TestLtiToolLoginView:
     endpoint = reverse("lti_1p3_provider:lti-login")
 
+    def test_lti_provider_disabled_returns_404(self, client):
+        """When ENABLE_LTI_1P3_PROVIDER is False, a 404 is returned"""
+        factories.LtiToolFactory()
+        qps_in = factories.OidcLoginFactory()
+        with override_features(ENABLE_LTI_1P3_PROVIDER=False):
+            resp = client.get(self.endpoint, qps_in)
+
+        assert resp.status_code == 404
+
     @pytest.mark.parametrize("method", ("get", "post"))
     def test_successful_login_init_returns_302(self, method, client):
         """Test successful login init returns 302 for GET or POST"""
@@ -134,6 +143,18 @@ class TestLtiToolLaunchView:
         )
         encoded = _encode_platform_jwt(id_token, self.kid, key=key)
         return {"state": "state", "id_token": encoded}
+
+    def test_lti_provider_disabled_returns_404(self, client):
+        """When ENABLE_LTI_1P3_PROVIDER is False, a 404 is returned"""
+        factories.LtiToolFactory()
+        endpoint = self._get_launch_endpoint(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+        with override_features(ENABLE_LTI_1P3_PROVIDER=False):
+            resp = client.post(endpoint, payload)
+
+        assert resp.status_code == 404
 
     @mock.patch("lti_1p3_provider.views.render_courseware")
     def test_successful_launch(self, mock_courseware, client):
@@ -227,7 +248,6 @@ class TestLtiToolJwksViewTest:
     Test JWKS view.
     """
 
-    @pytest.mark.skip("webpack-stats.json missing ...")
     @override_features(ENABLE_LTI_1P3_PROVIDER=False)
     def test_when_lti_disabled_return_404(self, client):
         """
