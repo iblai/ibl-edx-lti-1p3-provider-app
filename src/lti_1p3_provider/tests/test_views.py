@@ -157,6 +157,7 @@ class TestLtiToolLaunchView:
 
         resp = client.post(endpoint, payload)
 
+        assert resp.content == b"Course not found: course-v1:Org1+Course1+Run1."
         assert resp.status_code == 404
 
     def test_malformed_course_key_returns_400(self, client):
