@@ -241,6 +241,20 @@ class TestLtiToolLaunchView:
         assert resp.content == b"Invalid LTI tool launch."
         assert resp.status_code == 400
 
+    @mock.patch("lti_1p3_provider.views.authenticate")
+    def test_when_authenticate_fails_returns_400(self, mock_auth, client):
+        """If authenticate fails, a 400 is returns"""
+        mock_auth.return_value = None
+        endpoint = self._get_launch_endpoint(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+
+        resp = client.post(endpoint, payload)
+
+        assert resp.content == b"Invalid LTI tool launch."
+        assert resp.status_code == 400
+
 
 @pytest.mark.django_db
 class TestLtiToolJwksViewTest:
