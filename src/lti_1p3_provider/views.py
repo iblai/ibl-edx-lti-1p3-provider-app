@@ -13,7 +13,7 @@ import json
 import logging
 
 from django.conf import settings
-from django.contrib.auth import authenticate, get_user_model, login
+from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext as _
@@ -144,10 +144,10 @@ class LtiToolLaunchView(LtiToolView):
 
         if edx_user is not None:
             login(self.request, edx_user)
-            log.info("Logged in user: %s", edx_user)
+            mark_user_change_as_expected(edx_user.id)
         else:
             log.warning(
-                "Unable to login user %s from iss %s with aud %s)",
+                "Unable to login user %s from iss %s with aud %s",
                 self.launch_data["sub"],
                 self.launch_data["iss"],
                 self.launch_data["aud"],
@@ -183,9 +183,7 @@ class LtiToolLaunchView(LtiToolView):
         # Parse LTI launch message.
 
         try:
-            course_key, usage_key = self._parse_course_and_usage_keys(
-                course_id, usage_id
-            )
+            course_key, usage_key = parse_course_and_usage_keys(course_id, usage_id)
             log.info("LTI 1.3: Launch course=%s, block: id=%s", course_key, usage_key)
             self.launch_message = self.get_launch_message()
 
@@ -207,17 +205,23 @@ class LtiToolLaunchView(LtiToolView):
         self.handle_ags(course_key, usage_key)
 
         # Render context and response.
-        response = render_courseware(request, usage_key)
-        mark_user_change_as_expected(edx_user.id)
-        return response
+        try:
+            return render_courseware(request, usage_key)
+        except Exception:
+            # NOTE: I hate to say it, but I'm doing this because of a weird interaction
+            # during testing. Edx uses ATOMIC_REQUESTS and db SESSION_ENGINE.
+            # When an exception is raised after `login` is called, django's
+            # SessionMiddleware chokes b/c the Session that is created during login
+            # is rolled back (removed from the DB). So when it tries to update the
+            # session using a `force_update=True`, it fails b/c it "doesn't affect
+            # any rows" ... because it's not in the DB anymore.
+            # It works if we don't raise something like an Http404, but instead return
+            # an HttpResponse(status=404) ...
 
-    def _parse_course_and_usage_keys(
-        self, course_id: str, usage_id: str
-    ) -> tuple[CourseKey, UsageKey]:
-        """Return CourseKey and UsageKey from course_id and usage_id"""
-        course_key = CourseKey.formatter(course_id)
-        usage_key = UsageKey.from_string(usage_id).map_into_course(course_key)
-        return course_key, usage_key
+            # Since this is a launch endpoint where the user is logged in, logged them
+            # out here shouldn't hurt anything
+            logout(request)
+            raise
 
     def handle_ags(self, course_key: CourseKey, usage_key: UsageKey) -> None:
         """
