@@ -136,10 +136,6 @@ class TestLtiToolLaunchView:
         encoded = _encode_platform_jwt(id_token, self.kid)
         return {"state": "state", "id_token": encoded}
 
-    @mock.patch(
-        "pylti1p3.contrib.django.message_launch.DjangoSessionService",
-        new=fakes.FakeDjangoSessionService,
-    )
     @mock.patch("lti_1p3_provider.views.render_courseware")
     def test_successful_launch(self, mock_courseware, client):
         mock_courseware.return_value = HttpResponse(status=200)
@@ -153,7 +149,7 @@ class TestLtiToolLaunchView:
         assert resp.status_code == 200
 
     def test_unknown_course_key_returns_404(self, client):
-        """If the course is unknown, 404 is returned"""
+        """If the course/usage_key is unknown, 404 is returned"""
         endpoint = self._get_launch_endpoint(
             str(factories.COURSE_KEY), str(factories.USAGE_KEY)
         )
@@ -163,14 +159,28 @@ class TestLtiToolLaunchView:
 
         assert resp.status_code == 404
 
-    def test_missing_iss_returns_400(self, client):
-        pass
+    @pytest.mark.parametrize("key", ("iss", "aud", "sub"))
+    def test_missing_iss_aud_sub_returns_400(self, key, client):
+        endpoint = self._get_launch_endpoint(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+        target_link_uri = _get_target_link_uri(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        id_token = factories.IdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            target_link_uri=target_link_uri,
+        )
+        id_token.pop(key)
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
 
-    def test_missing_aud_returns_400(self, client):
-        pass
+        resp = client.post(endpoint, payload)
 
-    def test_missing_sub_returns_400(self, client):
-        pass
+        assert resp.content == b"Invalid LTI tool launch."
+        assert resp.status_code == 400
 
 
 @pytest.mark.django_db
