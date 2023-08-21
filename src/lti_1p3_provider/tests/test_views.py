@@ -29,14 +29,11 @@ def _get_target_link_uri(course_id, usage_id, domain="https://localhost") -> str
     return f"{domain}{endpoint}"
 
 
-def _encode_platform_jwt(data: dict, kid: str) -> str:
+def _encode_platform_jwt(
+    data: dict, kid: str, key=factories.PLATFORM_PRIVATE_KEY
+) -> str:
     """Encode JWT"""
-    return jwt.encode(
-        data,
-        key=factories.PLATFORM_PRIVATE_KEY,
-        algorithm="RS256",
-        headers={"kid": kid},
-    )
+    return jwt.encode(data, key=key, algorithm="RS256", headers={"kid": kid})
 
 
 def override_features(**kwargs):
@@ -125,7 +122,9 @@ class TestLtiToolLaunchView:
             kwargs={"course_id": course_id, "usage_id": usage_id},
         )
 
-    def _get_payload(self, course_key, usage_key) -> dict:
+    def _get_payload(
+        self, course_key, usage_key, key=factories.PLATFORM_PRIVATE_KEY
+    ) -> dict:
         """Generate and return payload with encoded id_token"""
         target_link_uri = _get_target_link_uri(str(course_key), str(usage_key))
         id_token = factories.IdTokenFactory(
@@ -133,7 +132,7 @@ class TestLtiToolLaunchView:
             nonce="nonce",
             target_link_uri=target_link_uri,
         )
-        encoded = _encode_platform_jwt(id_token, self.kid)
+        encoded = _encode_platform_jwt(id_token, self.kid, key=key)
         return {"state": "state", "id_token": encoded}
 
     @mock.patch("lti_1p3_provider.views.render_courseware")
@@ -189,7 +188,6 @@ class TestLtiToolLaunchView:
         endpoint = self._get_launch_endpoint(
             str(factories.COURSE_KEY), str(factories.USAGE_KEY)
         )
-        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
         target_link_uri = _get_target_link_uri(
             str(factories.COURSE_KEY), str(factories.USAGE_KEY)
         )
@@ -201,6 +199,21 @@ class TestLtiToolLaunchView:
         id_token.pop(key)
         encoded = _encode_platform_jwt(id_token, self.kid)
         payload = {"state": "state", "id_token": encoded}
+
+        resp = client.post(endpoint, payload)
+
+        assert resp.content == b"Invalid LTI tool launch."
+        assert resp.status_code == 400
+
+    def test_wrong_pub_key_returns_400(self, client):
+        """Test unable to decode returns 400"""
+        endpoint = self._get_launch_endpoint(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        # Encoding w/ tool's private key but will try to decode w/ platforms pub key
+        payload = self._get_payload(
+            factories.COURSE_KEY, factories.USAGE_KEY, key=factories.TOOL_PRIVATE_KEY
+        )
 
         resp = client.post(endpoint, payload)
 
