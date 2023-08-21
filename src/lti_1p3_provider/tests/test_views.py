@@ -159,6 +159,30 @@ class TestLtiToolLaunchView:
 
         assert resp.status_code == 404
 
+    def test_malformed_course_key_returns_400(self, client):
+        """If course key is malformed, returns a 400"""
+        endpoint = self._get_launch_endpoint(
+            "course-v1:not+a+valid+course", str(factories.USAGE_KEY)
+        )
+        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+
+        resp = client.post(endpoint, payload)
+
+        assert resp.content.decode("utf-8").startswith("Invalid Course or Key:")
+        assert resp.status_code == 400
+
+    def test_malformed_usage_key_returns_400(self, client):
+        """If usage key is malformed, returns a 400"""
+        endpoint = self._get_launch_endpoint(
+            str(factories.COURSE_KEY), "block-v1:not+the+right+type@something-format"
+        )
+        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+
+        resp = client.post(endpoint, payload)
+
+        assert resp.content.decode("utf-8").startswith("Invalid Course or Key:")
+        assert resp.status_code == 400
+
     @pytest.mark.parametrize("key", ("iss", "aud", "sub"))
     def test_missing_iss_aud_sub_returns_400(self, key, client):
         endpoint = self._get_launch_endpoint(
