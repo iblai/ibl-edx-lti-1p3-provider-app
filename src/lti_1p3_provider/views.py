@@ -207,21 +207,8 @@ class LtiToolLaunchView(LtiToolView):
         # Render context and response.
         try:
             return render_courseware(request, usage_key)
-        except Exception:
-            # NOTE: I hate to say it, but I'm doing this because of a weird interaction
-            # during testing. Edx uses ATOMIC_REQUESTS and db SESSION_ENGINE.
-            # When an exception is raised after `login` is called, django's
-            # SessionMiddleware chokes b/c the Session that is created during login
-            # is rolled back (removed from the DB). So when it tries to update the
-            # session using a `force_update=True`, it fails b/c it "doesn't affect
-            # any rows" ... because it's not in the DB anymore.
-            # It works if we don't raise something like an Http404, but instead return
-            # an HttpResponse(status=404) ...
-
-            # Since this is a launch endpoint where the user is logged in, logged them
-            # out here shouldn't hurt anything
-            logout(request)
-            raise
+        except Http404 as e:
+            return HttpResponse(e, status=404)
 
     def handle_ags(self, course_key: CourseKey, usage_key: UsageKey) -> None:
         """
