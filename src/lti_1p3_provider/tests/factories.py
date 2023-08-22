@@ -4,13 +4,13 @@ from time import time
 import factory
 from common.djangoapps.student.tests.factories import UserFactory
 from django.urls import reverse
-from opaque_keys.edx.keys import CourseKey
+from opaque_keys.edx.locator import CourseLocator
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
 from pylti1p3.registration import Registration
 
 from lti_1p3_provider.models import LtiGradedResource, LtiProfile
 
-COURSE_KEY = CourseKey.from_string("course-v1:Org1+Course1+Run1")
+COURSE_KEY = CourseLocator(org="Org1", course="Course1", run="Run1")
 USAGE_KEY = COURSE_KEY.make_usage_key("vertical", "some-html-id")
 PLATFORM_ISSUER = "https://platform-server.local"
 
