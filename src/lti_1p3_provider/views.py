@@ -213,7 +213,6 @@ class LtiToolLaunchView(LtiToolView):
     def handle_ags(self, course_key: CourseKey, usage_key: UsageKey) -> None:
         """
         Handle AGS-enabled launches for block in the request.
-        # NOTE: No test coverage here
         """
         if not self.launch_message.has_ags():
             return
