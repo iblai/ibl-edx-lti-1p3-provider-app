@@ -134,7 +134,6 @@ class LtiToolLaunchView(LtiToolView):
             aud=self.launch_data["aud"],
             sub=self.launch_data["sub"],
         )
-        # TODO: See if this could conflict with the content_libraries.auth imp
         edx_user = authenticate(
             self.request,
             iss=self.launch_data["iss"],
