@@ -5,10 +5,8 @@ Unit tests for Content Libraries authentication module.
 
 from django.test import TestCase
 
-
-from lti_1p3_provider.models import LtiProfile
-from lti_1p3_provider.models import get_user_model
 from lti_1p3_provider.auth import Lti1p3AuthenticationBackend
+from lti_1p3_provider.models import LtiProfile, get_user_model
 
 
 class LtiAuthenticationBackendTest(TestCase):
@@ -34,3 +32,14 @@ class LtiAuthenticationBackendTest(TestCase):
         user = backend.authenticate(None, iss=self.iss, aud=self.aud, sub=self.sub)
         self.assertIsNotNone(user)
         self.assertEqual(user.lti_1p3_provider_lti_profile, profile)
+
+    def test_inactive_user_returns_none(self):
+        profile = LtiProfile.objects.create(
+            platform_id=self.iss, client_id=self.aud, subject_id=self.sub
+        )
+        user = profile.user
+        user.is_active = False
+        user.save()
+        backend = Lti1p3AuthenticationBackend()
+        user = backend.authenticate(None, iss=self.iss, aud=self.aud, sub=self.sub)
+        self.assertIsNone(user)
