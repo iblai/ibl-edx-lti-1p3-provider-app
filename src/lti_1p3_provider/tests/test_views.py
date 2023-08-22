@@ -3,7 +3,6 @@ Tests for LTI views.
 """
 from __future__ import annotations
 
-import copy
 from unittest import mock
 from urllib import parse
 
@@ -14,7 +13,7 @@ from django.http import HttpResponse
 from django.test import override_settings
 from django.urls import reverse
 
-from lti_1p3_provider.views import LtiToolLaunchView
+from lti_1p3_provider.models import LtiGradedResource, LtiProfile
 
 from . import factories, fakes
 from .base import URL_LIB_LTI_JWKS
@@ -132,7 +131,11 @@ class TestLtiToolLaunchView:
         )
 
     def _get_payload(
-        self, course_key, usage_key, key=factories.PLATFORM_PRIVATE_KEY
+        self,
+        course_key,
+        usage_key,
+        key=factories.PLATFORM_PRIVATE_KEY,
+        lineitem=None,
     ) -> dict:
         """Generate and return payload with encoded id_token"""
         target_link_uri = _get_target_link_uri(str(course_key), str(usage_key))
@@ -140,6 +143,7 @@ class TestLtiToolLaunchView:
             aud=self.tool.client_id,
             nonce="nonce",
             target_link_uri=target_link_uri,
+            lineitem=lineitem,
         )
         encoded = _encode_platform_jwt(id_token, self.kid, key=key)
         return {"state": "state", "id_token": encoded}
@@ -254,6 +258,77 @@ class TestLtiToolLaunchView:
 
         assert resp.content == b"Invalid LTI tool launch."
         assert resp.status_code == 400
+
+    @pytest.mark.parametrize(
+        "has_lineitem, has_score", ((False, True), (True, False), (False, False))
+    )
+    @mock.patch("lti_1p3_provider.views.render_courseware")
+    def test_handle_ags_missing_scopes_doesnt_created_graded_resource(
+        self, mock_courseware, has_lineitem, has_score, client
+    ):
+        """If missing one of the required scopes, graded resource is not created"""
+        mock_courseware.return_value = HttpResponse(status=200)
+        endpoint = self._get_launch_endpoint(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        ags = factories.LtiAgsFactory(
+            has_score_scope=has_score,
+            has_lineitem_scope=has_lineitem,
+            has_result_scope=False,
+        )
+        payload = self._get_payload(
+            factories.COURSE_KEY, factories.USAGE_KEY, lineitem=ags
+        )
+
+        resp = client.post(endpoint, payload)
+
+        assert LtiGradedResource.objects.count() == 0
+        assert resp.status_code == 200
+
+    @mock.patch("lti_1p3_provider.views.render_courseware")
+    def test_handle_ags_no_lineitem_doesnt_create_graded_resource(
+        self, mock_courseware, client
+    ):
+        """If no lineitem claim exists , no graded resource is created"""
+        mock_courseware.return_value = HttpResponse(status=200)
+        endpoint = self._get_launch_endpoint(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        ags = factories.LtiAgsFactory()
+        ags.pop("lineitem")
+        payload = self._get_payload(
+            factories.COURSE_KEY, factories.USAGE_KEY, lineitem=ags
+        )
+
+        resp = client.post(endpoint, payload)
+
+        assert LtiGradedResource.objects.count() == 0
+        assert resp.status_code == 200
+
+    @mock.patch("lti_1p3_provider.views.render_courseware")
+    def test_handle_ags_graded_resource_created(self, mock_courseware, client):
+        """If no lineitem claim exists , no graded resource is created"""
+        mock_courseware.return_value = HttpResponse(status=200)
+        endpoint = self._get_launch_endpoint(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        ags = factories.LtiAgsFactory()
+        payload = self._get_payload(
+            factories.COURSE_KEY, factories.USAGE_KEY, lineitem=ags
+        )
+
+        resp = client.post(endpoint, payload)
+
+        assert LtiGradedResource.objects.count() == 1
+        resource = LtiGradedResource.objects.first()
+        assert resource.profile == LtiProfile.objects.first()
+        assert resource.course_key == factories.COURSE_KEY
+        assert resource.usage_key == factories.USAGE_KEY
+        assert resource.resource_id == "some-link-id"
+        assert resource.resource_title == "Resource Title"
+        assert resource.ags_lineitem == ags["lineitem"]
+        assert resource.version_number == 0
+        assert resp.status_code == 200
 
 
 @pytest.mark.django_db
