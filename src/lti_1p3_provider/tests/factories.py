@@ -2,10 +2,13 @@ import json
 from time import time
 
 import factory
+from common.djangoapps.student.tests.factories import UserFactory
 from django.urls import reverse
 from opaque_keys.edx.keys import CourseKey
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
 from pylti1p3.registration import Registration
+
+from lti_1p3_provider.models import LtiGradedResource, LtiProfile
 
 COURSE_KEY = CourseKey.from_string("course-v1:Org1+Course1+Run1")
 USAGE_KEY = COURSE_KEY.make_usage_key("vertical", "some-html-id")
@@ -140,6 +143,29 @@ class LtiToolFactory(factory.django.DjangoModelFactory):
         jwt = Registration.get_jwk(PLATFORM_PUBLIC_KEY)
         keys = {"keys": [jwt]}
         return json.dumps(keys)
+
+
+class LtiProfileFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = LtiProfile
+
+    user = factory.SubFactory(UserFactory)
+    platform_id = "platform"
+    client_id = "client-id"
+    subject_id = factory.Sequence(lambda n: f"user-{n}")
+
+
+class LtiGradedResourceFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = LtiGradedResource
+
+    profile = factory.SubFactory(LtiProfileFactory)
+    course_key = COURSE_KEY
+    usage_key = USAGE_KEY
+    resource_id = factory.Sequence(lambda n: f"resource-link-id-{n}")
+    resource_title = "Resource Title"
+    ags_lineitem = factory.Sequence(lambda n: f"{PLATFORM_ISSUER}/ags/lineitem/{n}")
+    version_number = 0
 
 
 class ResourceLinkFactory(factory.DictFactory):
