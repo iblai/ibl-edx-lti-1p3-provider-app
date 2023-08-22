@@ -6,7 +6,6 @@ Tests for the LTI outcome service handlers, both in outcomes.py and in tasks.py
 from unittest.mock import MagicMock, patch
 
 import pytest
-from common.djangoapps.student.tests.factories import UserFactory
 from django.utils import timezone
 from opaque_keys.edx.locator import BlockUsageLocator, CourseLocator
 
