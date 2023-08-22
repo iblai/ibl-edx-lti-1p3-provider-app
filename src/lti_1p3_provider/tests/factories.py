@@ -4,6 +4,7 @@ from time import time
 import factory
 from common.djangoapps.student.tests.factories import UserFactory
 from django.urls import reverse
+from django.utils import timezone
 from opaque_keys.edx.locator import CourseLocator
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
 from pylti1p3.registration import Registration
@@ -246,3 +247,14 @@ class IdTokenFactory(factory.DictFactory):
             obj.pop("lineitem")
 
         return obj
+
+
+class ScoreChangedSubmissionFactory(factory.DictFactory):
+    """Dict for kwargs passed to score changed handler"""
+
+    user_id: int
+    course_id = str(COURSE_KEY)
+    usage_id = str(USAGE_KEY)
+    modified = factory.LazyAttribute(lambda o: timezone.now())
+    weighted_possible = 2
+    weighted_earned = 1
