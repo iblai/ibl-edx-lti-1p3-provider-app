@@ -145,7 +145,8 @@ class LtiToolFactory(factory.django.DjangoModelFactory):
 class ResourceLinkFactory(factory.DictFactory):
     """Resource Link Claim keys"""
 
-    id: str = "some-link-id"
+    id = "some-link-id"
+    title = "Resource Title"
 
 
 class LtiAgsFactory(factory.DictFactory):
