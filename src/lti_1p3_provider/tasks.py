@@ -83,5 +83,5 @@ def send_leaf_score(resource_id, points_earned, points_possible, modified):
     have to calculate the scores for the course, making this method far faster
     than sending an outcome for a composite module.
     """
-    assignment = LtiGradedResource.objects.get(id=resource_id)
-    assignment.objects.update_score(points_earned, points_possible, modified)
+    resource = LtiGradedResource.objects.get(id=resource_id)
+    resource.update_score(points_earned, points_possible, modified)
