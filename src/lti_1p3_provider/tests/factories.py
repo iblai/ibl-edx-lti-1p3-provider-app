@@ -150,7 +150,7 @@ class LtiProfileFactory(factory.django.DjangoModelFactory):
         model = LtiProfile
 
     user = factory.SubFactory(UserFactory)
-    platform_id = "platform"
+    platform_id = PLATFORM_ISSUER
     client_id = "client-id"
     subject_id = factory.Sequence(lambda n: f"user-{n}")
 
