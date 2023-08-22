@@ -22,12 +22,6 @@ class BaseOutcomeTest:
     """
 
     def setup_method(self):
-        self.course_key = CourseLocator(
-            org="some_org", course="some_course", run="some_run"
-        )
-        self.usage_key = BlockUsageLocator(
-            course_key=self.course_key, block_type="problem", block_id="block_id"
-        )
         self.tool = factories.LtiToolFactory()
         self.profile = factories.LtiProfileFactory()
         self.graded_resource = factories.LtiGradedResourceFactory(profile=self.profile)
@@ -47,42 +41,102 @@ class TestSendLeafScore(BaseOutcomeTest):
         mock_update_score.assert_called_once_with(earned, possible, modified)
 
 
-@pytest.mark.skip
-class SendCompositeOutcomeTest(BaseOutcomeTest):
+@pytest.fixture
+def mock_course_grade():
+    with patch("lti_1p3_provider.tasks.CourseGradeFactory.read") as course_grade:
+        yield course_grade
+
+
+@pytest.fixture
+def mock_mod_store():
+    descriptor = MagicMock()
+    descriptor.location = BlockUsageLocator(
+        course_key=factories.COURSE_KEY,
+        block_type="problem",
+        block_id="problem",
+    )
+    with patch("lti_1p3_provider.tasks.modulestore") as mod_store:
+        mod_store.get_item = MagicMock(return_value=descriptor)
+        yield mod_store
+
+
+class TestSendCompositescore(BaseOutcomeTest):
     """
-    Tests for the send_composite_outcome method in tasks.py
+    Tests for the send_composite_score method in tasks.py
     """
 
-    def setUp(self):
-        super().setUp()
-        self.descriptor = MagicMock()
-        self.descriptor.location = BlockUsageLocator(
-            course_key=self.course_key,
-            block_type="problem",
-            block_id="problem",
-        )
-        self.course_grade = MagicMock()
-        self.course_grade_mock = self.setup_patch(
-            "lms.djangoapps.lti_provider.tasks.CourseGradeFactory.read",
-            self.course_grade,
-        )
-        self.module_store = MagicMock()
-        self.module_store.get_item = MagicMock(return_value=self.descriptor)
-        self.check_result_mock = self.setup_patch(
-            "lms.djangoapps.lti_provider.tasks.modulestore", self.module_store
+    @patch("lti_1p3_provider.models.LtiGradedResource.update_score")
+    def test_calls_update_score(
+        self, mock_update_score, mock_course_grade, mock_mod_store
+    ):
+        earned = 1
+        possible = 2
+        modified = timezone.now()
+        mock_score = MagicMock()
+        mock_score.score_for_module = MagicMock(return_value=(earned, possible))
+        mock_course_grade.return_value = mock_score
+
+        tasks.send_composite_score(
+            self.profile.user.id,
+            str(factories.COURSE_KEY),
+            self.graded_resource.id,
+            0,
+            modified,
         )
 
-    def test_outcome_with_score_score(self, earned, possible, expected):
-        self.course_grade.score_for_module = MagicMock(return_value=(earned, possible))
-        tasks.send_composite_outcome(
-            self.user.id, str(self.course_key), self.assignment.id, 1
-        )
-        self.send_score_update_mock.assert_called_once_with(self.assignment, expected)
+        mock_update_score.assert_called_once_with(earned, possible, modified)
 
-    def test_outcome_with_outdated_version(self):
-        self.assignment.version_number = 2
-        self.assignment.save()
-        tasks.send_composite_outcome(
-            self.user.id, str(self.course_key), self.assignment.id, 1
+    @patch("lti_1p3_provider.models.LtiGradedResource.update_score")
+    def test_outdated_version_doesnt_calc_or_send_score(
+        self, mock_update_score, mock_course_grade, mock_mod_store
+    ):
+        earned = 1
+        possible = 2
+        modified = timezone.now()
+        mock_score = MagicMock()
+        mock_score.score_for_module = MagicMock(return_value=(earned, possible))
+        mock_course_grade.return_value = mock_score
+
+        # Version number won't match what is sent now
+        self.graded_resource.version_number = 1
+        self.graded_resource.save()
+
+        tasks.send_composite_score(
+            self.profile.user.id,
+            str(factories.COURSE_KEY),
+            self.graded_resource.id,
+            0,
+            modified,
         )
-        assert self.course_grade_mock.call_count == 0
+
+        mock_score.score_for_module.assert_not_called()
+        mock_update_score.assert_not_called()
+
+    @patch("lti_1p3_provider.models.LtiGradedResource.update_score")
+    def test_outdated_version_after_score_calc_doesnt_send_score(
+        self, mock_update_score, mock_course_grade, mock_mod_store
+    ):
+        """Test version is updated after score calclated, doesn't send score"""
+        earned = 1
+        possible = 2
+
+        def _inc_version(usage_key):
+            self.graded_resource.version_number = 1
+            self.graded_resource.save()
+            return earned, possible
+
+        modified = timezone.now()
+        mock_score = MagicMock()
+        mock_score.score_for_module = MagicMock(side_effect=_inc_version)
+        mock_course_grade.return_value = mock_score
+
+        tasks.send_composite_score(
+            self.profile.user.id,
+            str(factories.COURSE_KEY),
+            self.graded_resource.id,
+            0,
+            modified,
+        )
+
+        mock_score.score_for_module.assert_called_once()
+        mock_update_score.assert_not_called()
