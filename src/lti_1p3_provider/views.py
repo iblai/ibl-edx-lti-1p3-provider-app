@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import json
 import logging
+from urllib import parse
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import render
+from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -94,14 +96,8 @@ class LtiToolLoginView(LtiToolView):
             self.lti_tool_config,
             launch_data_storage=self.lti_tool_storage,
         )
-        # TODO: Use static redirect url and then target_link_uri for what to render
-        # Would allow us to reuse a single redirect uri and vary the target_link_uri
-        # so it's easier to reuse credentials
-        launch_url = self.request.POST.get(
-            self.LAUNCH_URI_PARAMETER
-        ) or self.request.GET.get(self.LAUNCH_URI_PARAMETER)
         try:
-            return oidc_login.redirect(launch_url)
+            return oidc_login.redirect(reverse("lti_1p3_provider:lti-launch"))
         except (OIDCException, LtiException) as exc:
             # Relying on downstream error messages, attempt to sanitize it up
             # for customer facing errors.
@@ -192,17 +188,20 @@ class LtiToolLaunchView(LtiToolView):
         )
 
     # pylint: disable=attribute-defined-outside-init
-    def post(self, request, course_id: str, usage_id: str):
+    def post(self, request):
         """
         Process LTI platform launch requests.
         """
 
         # Parse LTI launch message.
 
+        # TODO: Add an optional gate for permissions/purchasing checks of some kind
+
         try:
+            self.launch_message = self.get_launch_message()
+            course_id, usage_id = self._get_course_and_usage_id()
             course_key, usage_key = parse_course_and_usage_keys(course_id, usage_id)
             log.info("LTI 1.3: Launch course=%s, block: id=%s", course_key, usage_key)
-            self.launch_message = self.get_launch_message()
 
         except InvalidKeyError as e:
             log.error("Invalid Launch Course or UsageKey - %s")
@@ -226,6 +225,23 @@ class LtiToolLaunchView(LtiToolView):
             return render_courseware(request, usage_key)
         except Http404 as e:
             return HttpResponse(e, status=404)
+
+    def _get_course_and_usage_id(self) -> tuple[str, str]:
+        """Return course_id and usage_id from target_link_uri query string"""
+        target_link_uri = self.launch_data.get(
+            "https://purl.imsglobal.org/spec/lti/claim/target_link_uri"
+        )
+        parsed_url = parse.urlparse(target_link_uri)
+        if parsed_url.path != reverse("lti_1p3_provider:lti-launch"):
+            raise LtiException("Invalid target_link_uri path")
+
+        qs = parse.parse_qs(parsed_url.query)
+        if "usage_id" not in qs:
+            raise LtiException("Missing usage_id in target_link_uri query string")
+        if "course_id" not in qs:
+            raise LtiException("Missing course_id in target_link_uri query string")
+
+        return qs["course_id"][0], qs["usage_id"][0]
 
     def handle_ags(self, course_key: CourseKey, usage_key: UsageKey) -> None:
         """
