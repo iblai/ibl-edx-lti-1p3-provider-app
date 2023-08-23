@@ -33,6 +33,9 @@ def get_assignments_for_problem(problem_descriptor, user_id, course_key):
     be embedded more than once at different granularities (as an individual
     problem and as a problem in a vertical, for example).
 
+    ibl: This means completing a single problem could update many graded resources
+    as it will update every one that this problem is included in.
+
     Returns a list of GradedAssignment objects that are associated with the
     given descriptor for the current user.
 
