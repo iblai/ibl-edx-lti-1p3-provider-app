@@ -93,6 +93,9 @@ class LtiToolLoginView(LtiToolView):
             self.lti_tool_config,
             launch_data_storage=self.lti_tool_storage,
         )
+        # TODO: Use static redirect url and then target_link_uri for what to render
+        # Would allow us to reuse a single redirect uri and vary the target_link_uri
+        # so it's easier to reuse credentials
         launch_url = self.request.POST.get(
             self.LAUNCH_URI_PARAMETER
         ) or self.request.GET.get(self.LAUNCH_URI_PARAMETER)
