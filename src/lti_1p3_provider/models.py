@@ -172,13 +172,15 @@ class LtiGradedResourceManager(models.Manager):
         resource_title = resource_link.get("title") or None
         lineitem = resource_endpoint["lineitem"]
         lti_profile = user.lti_1p3_provider_lti_profile
+        # NOTE: Added resource_id to lookup as there could be > 1 resource link
+        # pointing to the same course/usgae key for given user profile
         resource, _ = self.update_or_create(
             profile=lti_profile,
             course_key=course_key,
             usage_key=usage_key,
+            resource_id=resource_id,
             defaults={
                 "resource_title": resource_title,
-                "resource_id": resource_id,
                 "ags_lineitem": lineitem,
             },
         )
@@ -255,7 +257,7 @@ class LtiGradedResource(models.Model):
     version_number = models.IntegerField(default=0)
 
     class Meta:
-        unique_together = ["usage_key", "profile"]
+        unique_together = ["usage_key", "profile", "resource_id"]
 
     def update_score(self, weighted_earned, weighted_possible, timestamp):
         """
