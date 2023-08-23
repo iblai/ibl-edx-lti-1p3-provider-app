@@ -19,13 +19,11 @@ from . import factories, fakes
 from .base import URL_LIB_LTI_JWKS
 
 
-def _get_target_link_uri(course_id, usage_id, domain="https://localhost") -> str:
+def _get_target_link_uri(course_id, usage_id, domain="http://localhost") -> str:
     """Return tool launch url for course_id, usage_id"""
-    endpoint = reverse(
-        "lti_1p3_provider:lti-launch",
-        kwargs={"course_id": course_id, "usage_id": usage_id},
-    )
-    return f"{domain}{endpoint}"
+    endpoint = reverse("lti_1p3_provider:lti-launch")
+    qs = {"course_id": course_id, "usage_id": usage_id}
+    return f"{domain}{endpoint}?{parse.urlencode(qs)}"
 
 
 def _encode_platform_jwt(
@@ -83,7 +81,10 @@ class TestLtiToolLoginView:
         assert qps["prompt"] == ["none"]
         assert qps["client_id"] == [tool.client_id]
         assert qps["login_hint"] == [qps_in["login_hint"]]
-        assert qps["redirect_uri"] == [qps_in["target_link_uri"]]
+        target_link_uri = _get_target_link_uri(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        assert target_link_uri == qps_in["target_link_uri"]
 
         # Just make sure these aren't empty
         assert qps["state"]
@@ -118,17 +119,11 @@ class TestLtiToolLoginView:
     new=fakes.FakeDjangoSessionService,
 )
 class TestLtiToolLaunchView:
-    login_endpoint = reverse("lti_1p3_provider:lti-login")
+    launch_endpoint = reverse("lti_1p3_provider:lti-launch")
 
     def setup_method(self):
         self.tool = factories.LtiToolFactory()
         self.kid = self.tool.to_dict()["key_set"]["keys"][0]["kid"]
-
-    def _get_launch_endpoint(self, course_id: str, usage_id: str) -> str:
-        return reverse(
-            "lti_1p3_provider:lti-launch",
-            kwargs={"course_id": course_id, "usage_id": usage_id},
-        )
 
     def _get_payload(
         self,
@@ -151,68 +146,52 @@ class TestLtiToolLaunchView:
     def test_lti_provider_disabled_returns_404(self, client):
         """When ENABLE_LTI_1P3_PROVIDER is False, a 404 is returned"""
         factories.LtiToolFactory()
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
         with override_features(ENABLE_LTI_1P3_PROVIDER=False):
-            resp = client.post(endpoint, payload)
+            resp = client.post(self.launch_endpoint, payload)
 
         assert resp.status_code == 404
 
     @mock.patch("lti_1p3_provider.views.render_courseware")
     def test_successful_launch(self, mock_courseware, client):
         mock_courseware.return_value = HttpResponse(status=200)
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert resp.status_code == 200
 
     def test_unknown_course_key_returns_404(self, client):
         """If the course/usage_key is unknown, 404 is returned"""
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert resp.content == b"Course not found: course-v1:Org1+Course1+Run1."
         assert resp.status_code == 404
 
     def test_malformed_course_key_returns_400(self, client):
         """If course key is malformed, returns a 400"""
-        endpoint = self._get_launch_endpoint(
-            "course-v1:not+a+valid+course", str(factories.USAGE_KEY)
-        )
-        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+        invalid_course_key = "course-v1:course1"
+        payload = self._get_payload(invalid_course_key, factories.USAGE_KEY)
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert resp.content.decode("utf-8").startswith("Invalid Course or Key:")
         assert resp.status_code == 400
 
     def test_malformed_usage_key_returns_400(self, client):
         """If usage key is malformed, returns a 400"""
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), "block-v1:not+the+right+type@something-format"
-        )
-        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+        invalid_usage_key = "block-v1:org1+course1+run1+"
+        payload = self._get_payload(factories.COURSE_KEY, invalid_usage_key)
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert resp.content.decode("utf-8").startswith("Invalid Course or Key:")
         assert resp.status_code == 400
 
     @pytest.mark.parametrize("key", ("iss", "aud", "sub"))
     def test_missing_iss_aud_sub_returns_400(self, key, client):
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         target_link_uri = _get_target_link_uri(
             str(factories.COURSE_KEY), str(factories.USAGE_KEY)
         )
@@ -225,22 +204,19 @@ class TestLtiToolLaunchView:
         encoded = _encode_platform_jwt(id_token, self.kid)
         payload = {"state": "state", "id_token": encoded}
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert resp.content == b"Invalid LTI tool launch."
         assert resp.status_code == 400
 
     def test_wrong_pub_key_returns_400(self, client):
         """Test unable to decode returns 400"""
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         # Encoding w/ tool's private key but will try to decode w/ platforms pub key
         payload = self._get_payload(
             factories.COURSE_KEY, factories.USAGE_KEY, key=factories.TOOL_PRIVATE_KEY
         )
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert resp.content == b"Invalid LTI tool launch."
         assert resp.status_code == 400
@@ -249,12 +225,9 @@ class TestLtiToolLaunchView:
     def test_when_authenticate_fails_returns_400(self, mock_auth, client):
         """If authenticate fails, a 400 is returns"""
         mock_auth.return_value = None
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert resp.content == b"Invalid LTI tool launch."
         assert resp.status_code == 400
@@ -272,9 +245,6 @@ class TestLtiToolLaunchView:
         Currently only score is required
         """
         mock_courseware.return_value = HttpResponse(status=200)
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         ags = factories.LtiAgsFactory(
             has_score_scope=False,
             has_lineitem_scope=has_lineitem,
@@ -284,7 +254,7 @@ class TestLtiToolLaunchView:
             factories.COURSE_KEY, factories.USAGE_KEY, lineitem=ags
         )
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert LtiGradedResource.objects.count() == 0
         assert resp.status_code == 200
@@ -295,16 +265,13 @@ class TestLtiToolLaunchView:
     ):
         """If no lineitem claim exists , no graded resource is created"""
         mock_courseware.return_value = HttpResponse(status=200)
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         ags = factories.LtiAgsFactory()
         ags.pop("lineitem")
         payload = self._get_payload(
             factories.COURSE_KEY, factories.USAGE_KEY, lineitem=ags
         )
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert LtiGradedResource.objects.count() == 0
         assert resp.status_code == 200
@@ -313,15 +280,12 @@ class TestLtiToolLaunchView:
     def test_handle_ags_graded_resource_created(self, mock_courseware, client):
         """If no lineitem claim exists , no graded resource is created"""
         mock_courseware.return_value = HttpResponse(status=200)
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         ags = factories.LtiAgsFactory()
         payload = self._get_payload(
             factories.COURSE_KEY, factories.USAGE_KEY, lineitem=ags
         )
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert LtiGradedResource.objects.count() == 1
         resource = LtiGradedResource.objects.first()
