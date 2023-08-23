@@ -8,33 +8,47 @@ This module contains the models for new Content Libraries.
 LTI 1.3 Models
 ==============
 
-Content Libraries serves blockstore-based content through LTI 1.3 launches.
-The interface supports resource link launches and grading services.  Two use
-cases justify the current data model to support LTI launches.  They are:
+This is effectivly a re-implementation of the same concepts in the edx lti 1.1 provider
+but now implemented for LTI 1.3.
 
-1. Authentication and authorization.  This use case demands management of user
-   lifecycle to authorize access to content and grade submission, and it
-   introduces a model to own the authentication business logic related to LTI.
+Domain Model (Core concepts shown only - other meta data may exist):
 
-2. Grade and assignments.  When AGS is supported, content libraries store
-   additional information concerning the launched resource so that, once the
-   grading sub-system submits the score, it can retrieve them to propagate the
-   score update into the LTI platform's grade book.
-
-Relationship with LMS's ``lti_provider``` models
-------------------------------------------------
-
-The data model above is similar to the one provided by the current LTI 1.1
-implementation for modulestore and courseware content.  But, Content Libraries
-is orthogonal.  Its use-case is to offer standalone, embedded content from a
-specific backend (blockstore).  As such, it decouples from LTI 1.1. and the
-logic assume no relationship or impact across the two applications.  The same
-reasoning applies to steps beyond the data model, such as at the XBlock
-runtime, authentication, and score handling, etc.
+┌─────────────────────────────────┐
+│LtiGradedResource                │     ┌─────────────────┐
+│                                 │     │LtiProfile       │
+│- profile (FK)                   │     │                 │
+│- course_key                     │     │- EdxUser (FK)   │
+│- usage_key                      │────▶│- sub            │
+│- resource_id (resource_link_id) │     │- iss            │
+│- ags_lineitem (url)             │     │- client_id      │
+│                                 │     └─────────────────┘
+└─────────────────────────────────┘
+                 │
+                 │
+                 ▼
+      ┌─────────────────────┐
+      │LtiTool              │
+      │                     │
+      │- platform_id (iss)  │
+      │- client_id          │
+      │- tool_key (FK)      │
+      │                     │
+      └─────────────────────┘
+                 │
+                 │
+                 ▼
+       ┌──────────────────┐
+       │LtiToolKey        │
+       │                  │
+       │- name            │
+       │- private_key     │
+       │- public_key      │
+       │- public_jwk      │
+       │                  │
+       └──────────────────┘
 """
 
 import logging
-import uuid
 
 from django.contrib.auth import get_user_model
 from django.db import models, transaction
