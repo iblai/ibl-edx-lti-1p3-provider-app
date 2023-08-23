@@ -233,15 +233,15 @@ class LtiToolLaunchView(LtiToolView):
         )
         parsed_url = parse.urlparse(target_link_uri)
         if parsed_url.path != reverse("lti_1p3_provider:lti-launch"):
-            raise LtiException("Invalid target_link_uri path")
+            raise LtiException("Invalid target_link_uri path: %s", parsed_url.path)
 
-        qs = parse.parse_qs(parsed_url.query)
-        if "usage_id" not in qs:
-            raise LtiException("Missing usage_id in target_link_uri query string")
-        if "course_id" not in qs:
+        qs_parts = parse.parse_qs(parsed_url.query)
+        if not qs_parts.get("course_id"):
             raise LtiException("Missing course_id in target_link_uri query string")
+        if not qs_parts.get("usage_id"):
+            raise LtiException("Missing usage_id in target_link_uri query string")
 
-        return qs["course_id"][0], qs["usage_id"][0]
+        return qs_parts["course_id"][0], qs_parts["usage_id"][0]
 
     def handle_ags(self, course_key: CourseKey, usage_key: UsageKey) -> None:
         """
