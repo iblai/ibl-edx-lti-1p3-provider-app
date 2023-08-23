@@ -131,9 +131,11 @@ class TestLtiToolLaunchView:
         usage_key,
         key=factories.PLATFORM_PRIVATE_KEY,
         lineitem=None,
+        target_link_uri=None,
     ) -> dict:
         """Generate and return payload with encoded id_token"""
-        target_link_uri = _get_target_link_uri(str(course_key), str(usage_key))
+        if target_link_uri is None:
+            target_link_uri = _get_target_link_uri(str(course_key), str(usage_key))
         id_token = factories.IdTokenFactory(
             aud=self.tool.client_id,
             nonce="nonce",
@@ -160,6 +162,41 @@ class TestLtiToolLaunchView:
         resp = client.post(self.launch_endpoint, payload)
 
         assert resp.status_code == 200
+
+    def test_missing_course_id_in_target_link_uri_returns_400(self, client):
+        """If the course_id missing in target_link_uri, 400 is returned"""
+        payload = self._get_payload("", factories.USAGE_KEY)
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        assert resp.content == b"Invalid LTI tool launch."
+        assert resp.status_code == 400
+
+    def test_missing_usage_id_in_target_link_uri_returns_400(self, client):
+        """If the usage_id missing in target_link_uri, 400 is returned"""
+        payload = self._get_payload(factories.COURSE_KEY, "")
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        assert resp.content == b"Invalid LTI tool launch."
+        assert resp.status_code == 400
+
+    def test_wrong_target_link_uri_path_returns_400(self, client):
+        """If the path in target_link_uri doesn't match launchurl, 400 is returned"""
+        path = "/some/other/path/"
+        qs = {
+            "course_id": str(factories.COURSE_KEY),
+            "usage_id": str(factories.USAGE_KEY),
+        }
+        target_link_uri = f"https://localhost{path}?{parse.urlencode(qs)}"
+        payload = self._get_payload(
+            factories.COURSE_KEY, factories.USAGE_KEY, target_link_uri=target_link_uri
+        )
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        assert resp.content == b"Invalid LTI tool launch."
+        assert resp.status_code == 400
 
     def test_unknown_course_key_returns_404(self, client):
         """If the course/usage_key is unknown, 404 is returned"""
