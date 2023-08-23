@@ -97,7 +97,9 @@ class LtiToolLoginView(LtiToolView):
             launch_data_storage=self.lti_tool_storage,
         )
         try:
-            return oidc_login.redirect(reverse("lti_1p3_provider:lti-launch"))
+            return oidc_login.redirect(
+                self.request.build_absolute_uri(reverse("lti_1p3_provider:lti-launch"))
+            )
         except (OIDCException, LtiException) as exc:
             # Relying on downstream error messages, attempt to sanitize it up
             # for customer facing errors.
