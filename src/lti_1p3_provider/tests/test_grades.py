@@ -35,6 +35,7 @@ class TestGrades(ModuleStoreTestCase):
             self.chapter = ItemFactory.create(parent=self.course, category="chapter")
             self.vertical = ItemFactory.create(parent=self.chapter, category="vertical")
             self.unit = ItemFactory.create(parent=self.vertical, category="unit")
+            self.problem = ItemFactory.create(parent=self.unit, catgegory="problem")
 
     def create_graded_assignment(self, desc, title):
         """
@@ -49,26 +50,26 @@ class TestGrades(ModuleStoreTestCase):
         return assignment
 
     def test_with_no_graded_assignments(self):
-        with check_mongo_calls(3):
+        with check_mongo_calls(4):
             assignments = get_assignments_for_problem(
-                self.unit, self.user_id, self.course.id
+                self.problem, self.user_id, self.course.id
             )
         assert len(assignments) == 0
 
     def test_with_graded_unit(self):
         self.create_graded_assignment(self.unit, "graded_unit")
-        with check_mongo_calls(3):
+        with check_mongo_calls(4):
             assignments = get_assignments_for_problem(
-                self.unit, self.user_id, self.course.id
+                self.problem, self.user_id, self.course.id
             )
         assert len(assignments) == 1
         assert assignments[0].resource_title == "graded_unit"
 
     def test_with_graded_vertical(self):
         self.create_graded_assignment(self.vertical, "graded_vertical")
-        with check_mongo_calls(3):
+        with check_mongo_calls(4):
             assignments = get_assignments_for_problem(
-                self.unit, self.user_id, self.course.id
+                self.problem, self.user_id, self.course.id
             )
         assert len(assignments) == 1
         assert assignments[0].resource_title == "graded_vertical"
@@ -76,9 +77,9 @@ class TestGrades(ModuleStoreTestCase):
     def test_with_graded_unit_and_vertical(self):
         self.create_graded_assignment(self.unit, "graded_unit")
         self.create_graded_assignment(self.vertical, "graded_vertical")
-        with check_mongo_calls(3):
+        with check_mongo_calls(4):
             assignments = get_assignments_for_problem(
-                self.unit, self.user_id, self.course.id
+                self.problem, self.user_id, self.course.id
             )
         assert len(assignments) == 2
         assert assignments[0].resource_title == "graded_unit"
@@ -88,9 +89,9 @@ class TestGrades(ModuleStoreTestCase):
         """Multiple resource links for user pointed to the same unit"""
         self.create_graded_assignment(self.unit, "graded_unit")
         self.create_graded_assignment(self.unit, "graded_unit2")
-        with check_mongo_calls(3):
+        with check_mongo_calls(4):
             assignments = get_assignments_for_problem(
-                self.unit, self.user_id, self.course.id
+                self.problem, self.user_id, self.course.id
             )
         assert len(assignments) == 2
         assert assignments[0].resource_title == "graded_unit"
@@ -99,8 +100,8 @@ class TestGrades(ModuleStoreTestCase):
     def test_with_unit_graded_for_different_user(self):
         self.create_graded_assignment(self.unit, "graded_unit")
         other_user = UserFactory.create()
-        with check_mongo_calls(3):
+        with check_mongo_calls(4):
             assignments = get_assignments_for_problem(
-                self.unit, other_user.id, self.course.id
+                self.problem, other_user.id, self.course.id
             )
         assert len(assignments) == 0
