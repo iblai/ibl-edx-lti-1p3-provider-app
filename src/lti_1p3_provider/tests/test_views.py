@@ -85,6 +85,9 @@ class TestLtiToolLoginView:
             str(factories.COURSE_KEY), str(factories.USAGE_KEY)
         )
         assert target_link_uri == qps_in["target_link_uri"]
+        assert qps["redirect_uri"] == [
+            f'http://testserver{reverse("lti_1p3_provider:lti-launch")}'
+        ]
 
         # Just make sure these aren't empty
         assert qps["state"]
