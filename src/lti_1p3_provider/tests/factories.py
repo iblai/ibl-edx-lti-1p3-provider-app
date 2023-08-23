@@ -1,5 +1,6 @@
 import json
 from time import time
+from urllib import parse
 
 import factory
 from common.djangoapps.student.tests.factories import UserFactory
@@ -107,11 +108,9 @@ class OidcLoginFactory(factory.DictFactory):
     @factory.lazy_attribute
     def target_link_uri(self):
         """Return target link uri for domain, course_id, and usage_id"""
-        endpoint = reverse(
-            "lti_1p3_provider:lti-launch",
-            kwargs={"course_id": self.course_id, "usage_id": self.usage_id},
-        )
-        return f"{self.protocol}://{self.domain}{endpoint}"
+        endpoint = reverse("lti_1p3_provider:lti-launch")
+        qs = {"course_id": self.course_id, "usage_id": self.usage_id}
+        return f"{self.protocol}://{self.domain}{endpoint}?{parse.urlencode(qs)}"
 
 
 class LtiToolKeyFactory(factory.django.DjangoModelFactory):
