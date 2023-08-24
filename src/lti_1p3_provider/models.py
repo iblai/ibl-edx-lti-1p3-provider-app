@@ -309,6 +309,12 @@ class LtiGradedResource(models.Model):
         else:
             weighted_score = float(weighted_earned) / float(weighted_possible)
 
+        log.debug(
+            "Putting Grade - weighted_score: %s, timestamp: %s, sub: %s",
+            weighted_score,
+            timestamp.isoformat(),
+            self.profile.subject_id,
+        )
         ags.put_grade(
             Grade()
             .set_score_given(weighted_score)
