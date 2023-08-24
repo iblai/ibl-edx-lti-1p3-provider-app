@@ -7,12 +7,9 @@ import logging
 from django.conf import settings
 from django.dispatch import receiver
 from lms.djangoapps.grades.api import signals as grades_signals
-from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import LearningContextKey
-from opaque_keys.edx.locator import LibraryUsageLocatorV2
 
 from .grades import increment_assignment_versions
-from .models import LtiGradedResource
 from .tasks import send_composite_score, send_leaf_score
 from .views import parse_course_and_usage_keys
 
@@ -28,6 +25,7 @@ def score_changed_handler(sender, **kwargs):  # pylint: disable=unused-argument
     NOTE: This was taken from lms.djangoapps.lti_provider.signals and updated for our
     needs.
     """
+    log.debug("LTI Score Changed Handler")
     modified = kwargs.get("modified", None)
     points_possible = kwargs.get("weighted_possible", None)
     points_earned = kwargs.get("weighted_earned", None)
@@ -37,14 +35,17 @@ def score_changed_handler(sender, **kwargs):  # pylint: disable=unused-argument
 
     # Make sure this came from a course because this code only works with courses
     if not course_id:
+        log.debug("course_id is None; exiting")
         return
     context_key = LearningContextKey.from_string(course_id)
     if not context_key.is_course:
+        log.debug("context_key is not a course")
         return  # This is a content library or something else...
 
     if None not in (points_earned, points_possible, user_id, course_id, modified):
         course_key, usage_key = parse_course_and_usage_keys(course_id, usage_id)
         resources = increment_assignment_versions(course_key, usage_key, user_id)
+        log.debug("Graded Resources: %s", resources)
         for resource in resources:
             if resource.usage_key == usage_key:
                 send_leaf_score.delay(
