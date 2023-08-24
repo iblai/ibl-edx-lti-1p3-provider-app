@@ -26,6 +26,21 @@ pip install git+https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app
 ```
 
 # Setup
+## Edx
+- Ensure `settings.FEATURES['ENABLE_LTI_1P3_PROVIDER] = True` is set in `lms/envs/common.py`
+- Add a condition to add the lti 1.3 provider authentication backend:
+```python
+
+if FEATURES.get("ENABLE_LTI_1P3_PROVIDER"):
+    AUTHENTICATION_BACKENDS.append("lti_1p3_provider.auth.Lti1p3AuthenticationBackend")
+```
+
+These are both implemented in the included `tutor_plugins/enable_lti_1p3_provider.py` tutor plugin.
+
+## Optional Settings
+- `LTI_AGGREGATE_SCORE_PASSBACK_DELAY`: Number of seconds to wait to perform grade passback on composite modules (subsections and units). This helps [batch requests](https://docs.celeryq.dev/en/stable/userguide/calling.html#eta-and-countdown). [default: 15 minutes](https://github.com/openedx/edx-platform/blob/6db1e1db26a0d307446109334f49841aa9aae599/lms/envs/common.py/#L4302-L4312)
+
+
 ## Setup an LTI Tool Key
 You technically only need to do this once. It's going to be the Private/Public key for one or multiple tools to use.
 
