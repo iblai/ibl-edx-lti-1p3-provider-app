@@ -31,5 +31,5 @@ class Lti1p3ProviderConfig(AppConfig):
     def ready(self) -> None:
         from django.conf import settings
 
-        if settings.FEATURES["ENABLE_LTI_1P3_PROVIDER"]:
+        if settings.FEATURES.get("ENABLE_LTI_1P3_PROVIDER", False):
             from . import signal_handlers
