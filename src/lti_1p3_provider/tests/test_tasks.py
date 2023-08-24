@@ -36,7 +36,8 @@ class TestSendLeafScore(BaseOutcomeTest):
         earned = 1.0
         possible = 2.0
         modified = timezone.now()
-        tasks.send_leaf_score(self.graded_resource.id, earned, possible, modified)
+        modified_dt = modified.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        tasks.send_leaf_score(self.graded_resource.id, earned, possible, modified_dt)
         mock_update_score.assert_called_once_with(earned, possible, modified)
 
 
@@ -71,6 +72,7 @@ class TestSendCompositescore(BaseOutcomeTest):
         earned = 1
         possible = 2
         modified = timezone.now()
+        modified_dt = modified.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         mock_score = MagicMock()
         mock_score.score_for_module = MagicMock(return_value=(earned, possible))
         mock_course_grade.return_value = mock_score
@@ -80,7 +82,7 @@ class TestSendCompositescore(BaseOutcomeTest):
             str(factories.COURSE_KEY),
             self.graded_resource.id,
             0,
-            modified,
+            modified_dt,
         )
 
         mock_update_score.assert_called_once_with(earned, possible, modified)
@@ -92,6 +94,7 @@ class TestSendCompositescore(BaseOutcomeTest):
         earned = 1
         possible = 2
         modified = timezone.now()
+        modified_dt = modified.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         mock_score = MagicMock()
         mock_score.score_for_module = MagicMock(return_value=(earned, possible))
         mock_course_grade.return_value = mock_score
@@ -105,7 +108,7 @@ class TestSendCompositescore(BaseOutcomeTest):
             str(factories.COURSE_KEY),
             self.graded_resource.id,
             0,
-            modified,
+            modified_dt,
         )
 
         mock_score.score_for_module.assert_not_called()
@@ -125,6 +128,7 @@ class TestSendCompositescore(BaseOutcomeTest):
             return earned, possible
 
         modified = timezone.now()
+        modified_dt = modified.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         mock_score = MagicMock()
         mock_score.score_for_module = MagicMock(side_effect=_inc_version)
         mock_course_grade.return_value = mock_score
@@ -134,7 +138,7 @@ class TestSendCompositescore(BaseOutcomeTest):
             str(factories.COURSE_KEY),
             self.graded_resource.id,
             0,
-            modified,
+            modified_dt,
         )
 
         mock_score.score_for_module.assert_called_once()
