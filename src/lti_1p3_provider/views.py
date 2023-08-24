@@ -217,12 +217,12 @@ class LtiToolLaunchView(LtiToolView):
         Handle AGS-enabled launches for block in the request.
         """
         if not self.launch_message.has_ags():
+            log.debug("Not an AGS launch")
             return
 
         endpoint_claim = "https://purl.imsglobal.org/spec/lti-ags/claim/endpoint"
         endpoint = self.launch_data[endpoint_claim]
         required_scopes = [
-            "https://purl.imsglobal.org/spec/lti-ags/scope/lineitem",
             "https://purl.imsglobal.org/spec/lti-ags/scope/score",
         ]
 
@@ -239,7 +239,7 @@ class LtiToolLaunchView(LtiToolView):
         if not lineitem:
             log.info(
                 "LTI 1.3: AGS: LTI platform didn't pass lineitem, ignoring "
-                "request: %s",
+                "request: %s. Code doesn't exist to create one yet, no grade passback.",
                 endpoint,
             )
             return
