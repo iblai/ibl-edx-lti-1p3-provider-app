@@ -4,8 +4,10 @@ Asynchronous tasks for the LTI provider app.
 
 
 import logging
+from datetime import datetime
 
 from django.contrib.auth.models import User
+from django.utils.dateparse import parse_datetime
 from edx_django_utils.monitoring import set_code_owner_attribute
 from lms import CELERY_APP
 from lms.djangoapps.grades.api import CourseGradeFactory
@@ -50,6 +52,7 @@ def send_composite_score(user_id, course_id, resource_id, version, modified):
 
     NOTE: ibl: Taken from lms.djangoapps.lti_provider.tasks and adjusted for our needs.
     """
+    modified = parse_datetime(modified)
     resource = LtiGradedResource.objects.get(id=resource_id)
     if version != resource.version_number:
         log.info(
@@ -70,6 +73,7 @@ def send_composite_score(user_id, course_id, resource_id, version, modified):
 
     resource.refresh_from_db()
     if resource.version_number == version:
+        log.debug("Sending score update")
         resource.update_score(earned, possible, modified)
 
 
@@ -83,5 +87,6 @@ def send_leaf_score(resource_id, points_earned, points_possible, modified):
     have to calculate the scores for the course, making this method far faster
     than sending an outcome for a composite module.
     """
+    modified = parse_datetime(modified)
     resource = LtiGradedResource.objects.get(id=resource_id)
     resource.update_score(points_earned, points_possible, modified)
