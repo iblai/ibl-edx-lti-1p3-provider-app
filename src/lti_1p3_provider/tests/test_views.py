@@ -260,19 +260,22 @@ class TestLtiToolLaunchView:
         assert resp.status_code == 400
 
     @pytest.mark.parametrize(
-        "has_lineitem, has_score", ((False, True), (True, False), (False, False))
+        "has_lineitem", (False, True),
     )
     @mock.patch("lti_1p3_provider.views.render_courseware")
     def test_handle_ags_missing_scopes_doesnt_created_graded_resource(
-        self, mock_courseware, has_lineitem, has_score, client
+        self, mock_courseware, has_lineitem, client
     ):
-        """If missing one of the required scopes, graded resource is not created"""
+        """If missing one of the required scopes, graded resource is not created
+
+        Currently only score is required
+        """
         mock_courseware.return_value = HttpResponse(status=200)
         endpoint = self._get_launch_endpoint(
             str(factories.COURSE_KEY), str(factories.USAGE_KEY)
         )
         ags = factories.LtiAgsFactory(
-            has_score_scope=has_score,
+            has_score_scope=False,
             has_lineitem_scope=has_lineitem,
             has_result_scope=False,
         )
