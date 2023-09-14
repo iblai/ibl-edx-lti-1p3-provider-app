@@ -98,3 +98,12 @@ To use the LTI Assignment and Grades service (Grade pasback), the `Platform` wil
 
 # Additional Notes
 - The course must be published and available (course must be started) for a `Platform` for be able to use it.
+
+## Running Tests
+- Install the [ibl-edx-test-env-plugin](https://github.com/ibleducation/ibl-edx-test-env-plugin) and enable it
+- Follow its setup instructions
+- Run: `tutor test run lms bash`
+- `pip install -e ../path/to/this/repo`
+- We need to copy static files into the `test_root` dir:
+  - `cp -r ../staticfiles ./test_root/`
+- `pytest ../<path_to_repo>/src/lti_1p3_provider/tests --disable-warnings --no-migrations`
