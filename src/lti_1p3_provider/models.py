@@ -49,11 +49,12 @@ Domain Model (Core concepts shown only - other meta data may exist):
 """
 
 import logging
+import random
+import string
 
 from django.contrib.auth import get_user_model
 from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
-from lms.djangoapps.lti_provider.users import generate_random_edx_username
 from opaque_keys.edx.django.models import CourseKeyField, UsageKeyField
 from pylti1p3.contrib.django import DjangoDbToolConf, DjangoMessageLaunch
 from pylti1p3.grade import Grade
@@ -327,3 +328,17 @@ class LtiGradedResource(models.Model):
 
     def __str__(self):
         return str(self.usage_key)
+
+
+def generate_random_edx_username():
+    """
+    Create a valid random edX user ID. An ID is at most 30 characters long, and
+    can contain upper and lowercase letters and numbers.
+
+    NOTE: Taken from lms.djangoapps.lti_provider.users
+    """
+    allowable_chars = string.ascii_letters + string.digits
+    username = ""
+    for _index in range(30):
+        username = username + random.SystemRandom().choice(allowable_chars)
+    return username
