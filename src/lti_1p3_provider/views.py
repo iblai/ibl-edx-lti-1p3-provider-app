@@ -13,8 +13,9 @@ import json
 import logging
 
 from django.conf import settings
-from django.contrib.auth import authenticate, get_user_model, login, logout
+from django.contrib.auth import authenticate, get_user_model, login
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.shortcuts import render
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -175,6 +176,20 @@ class LtiToolLaunchView(LtiToolView):
         # This will force the LTI launch validation steps.
         launch_message.get_launch_data()
         return launch_message
+
+    def get(self, request, course_id: str, usage_id: str):
+        """
+        Show a nicer error in case user uses the Back button in their browser
+
+        This will result in a GET to this normally POST-only endpoint.
+        """
+        context = {"disable_header": True}
+        return render(
+            request,
+            "lti_1p3_provider/relaunch_error.html",
+            context=context,
+            status=405,
+        )
 
     # pylint: disable=attribute-defined-outside-init
     def post(self, request, course_id: str, usage_id: str):
