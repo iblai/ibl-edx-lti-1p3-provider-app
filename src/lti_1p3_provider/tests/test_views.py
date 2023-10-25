@@ -260,7 +260,8 @@ class TestLtiToolLaunchView:
         assert resp.status_code == 400
 
     @pytest.mark.parametrize(
-        "has_lineitem", (False, True),
+        "has_lineitem",
+        (False, True),
     )
     @mock.patch("lti_1p3_provider.views.render_courseware")
     def test_handle_ags_missing_scopes_doesnt_created_graded_resource(
@@ -332,6 +333,20 @@ class TestLtiToolLaunchView:
         assert resource.ags_lineitem == ags["lineitem"]
         assert resource.version_number == 0
         assert resp.status_code == 200
+
+    def test_get_returns_405_with_error_template(self, client):
+        """A GET to the launch endpoint returns a 405 with the error template"""
+        endpoint = self._get_launch_endpoint(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+
+        resp = client.get(endpoint)
+
+        assert (
+            "Please relaunch your content from its original source to view it."
+            in resp.text
+        )
+        assert resp.status_code == 405
 
 
 @pytest.mark.django_db
