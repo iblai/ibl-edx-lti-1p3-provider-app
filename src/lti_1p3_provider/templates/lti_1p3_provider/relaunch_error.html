@@ -1,0 +1,23 @@
+## mako
+<%page expression_filter="h"/>
+<%! from django.utils.translation import gettext as _
+from openedx.core.djangolib.markup import HTML, Text
+%>
+<%inherit file="/main.html" />
+<%namespace name='static' file='../static_content.html'/>
+<%!
+from django.utils.translation import gettext as _
+from openedx.core.djangolib.markup import HTML, Text
+%>
+
+
+<section class="container">
+  <section class="outside-app">
+    <h1>
+      ${Text(_('This page cannot be directly accessed'))}
+    </h1>
+    <p style="text-align: center;">
+      ${Text(_("Please relaunch your content from its original source to view it."))}
+    </p>
+  </section>
+</section>
