@@ -1,6 +1,6 @@
 # LTI 1.3 Provider
 
-## v1.0.2
+## Unreleased
 ### Added
 - [#6](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/6): Show nicer error page if user hits browser Back button after launch
 
