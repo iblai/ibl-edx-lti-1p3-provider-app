@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timedelta
 from urllib import parse
 
 from django.conf import settings
@@ -25,6 +26,7 @@ from django.http import (
 )
 from django.shortcuts import redirect, render
 from django.urls import Resolver404, resolve, reverse
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -298,10 +300,23 @@ class LtiToolLaunchView(LtiToolView):
         """Setup session to grant lti access to target link uri"""
         target_link_uri = self._get_target_link_uri()
         target_link_uri_path = parse.urlparse(target_link_uri)[2]
-        session_lenth = getattr(settings, "LTI_1P3_ACCESS_LENGTH_SEC", 60 * 60)
-        set_lti_session_access(
-            self.request.session, target_link_uri_path, session_lenth
-        )
+        expiration = self._get_lti_session_expiration()
+        set_lti_session_access(self.request.session, target_link_uri_path, expiration)
+
+    def _get_lti_session_expiration(self) -> datetime:
+        """Return expiration for LTI Session for this path"""
+        override_exp_sec = getattr(settings, "LTI_1P3_ACCESS_LENGTH_SEC", None)
+        if override_exp_sec is not None:
+            log.debug(
+                "Using LTI_1P3_ACCESS_LENGTH_SEC as lti access length: %s",
+                override_exp_sec,
+            )
+            return timezone.now() + timedelta(seconds=override_exp_sec)
+
+        # Use the expiration from the JWT if we're not forcing one
+        log.debug("Using JWT exp as lti access length")
+        exp = self.launch_data.get("exp")
+        return datetime.fromtimestamp(exp, tz=timezone.utc)
 
 
 @method_decorator(login_required, name="dispatch")
