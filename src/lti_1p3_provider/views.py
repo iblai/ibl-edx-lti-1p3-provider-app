@@ -15,9 +15,16 @@ from urllib import parse
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login
-from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
-from django.shortcuts import render
-from django.urls import reverse
+from django.contrib.auth.decorators import login_required
+from django.http import (
+    Http404,
+    HttpResponse,
+    HttpResponseBadRequest,
+    HttpResponseForbidden,
+    JsonResponse,
+)
+from django.shortcuts import redirect, render
+from django.urls import Resolver404, resolve, reverse
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -37,10 +44,12 @@ from pylti1p3.contrib.django import (
 )
 from pylti1p3.exception import LtiException, OIDCException
 
+from .exceptions import MissingSessionError
 from .models import LtiGradedResource, LtiProfile
+from .session_access import has_lti_session_access, set_lti_session_access
 
-User = get_user_model()
 log = logging.getLogger(__name__)
+User = get_user_model()
 
 
 def requires_lti_enabled(view_func):
@@ -198,6 +207,7 @@ class LtiToolLaunchView(LtiToolView):
         # Parse LTI launch message.
 
         # TODO: Add an optional gate for permissions/purchasing checks of some kind
+        # TODO: Use the optional launch presentation claim to communicate errors if present
 
         try:
             self.launch_message = self.get_launch_message()
@@ -221,29 +231,27 @@ class LtiToolLaunchView(LtiToolView):
             return self._bad_request_response()
 
         self.handle_ags(course_key, usage_key)
-
-        # Render context and response.
-        try:
-            return render_courseware(request, usage_key)
-        except Http404 as e:
-            return HttpResponse(e, status=404)
+        self._set_session_access()
+        return redirect(self._get_target_link_uri())
 
     def _get_course_and_usage_id(self) -> tuple[str, str]:
         """Return course_id and usage_id from target_link_uri query string"""
-        target_link_uri = self.launch_data.get(
+        target_link_uri = self._get_target_link_uri()
+        path = parse.urlparse(target_link_uri)[2]
+        try:
+            log.info("Target link uri: %s", path)
+            match = resolve(path)
+        except Resolver404:
+            log.error("target link uri: %s is invalid", target_link_uri)
+            raise LtiException("Invalid target_link_uri path: %s", target_link_uri)
+
+        return match.kwargs["course_id"], match.kwargs["usage_id"]
+
+    def _get_target_link_uri(self) -> str:
+        """Return target link URI from payload"""
+        return self.launch_data.get(
             "https://purl.imsglobal.org/spec/lti/claim/target_link_uri"
         )
-        parsed_url = parse.urlparse(target_link_uri)
-        if parsed_url.path != reverse("lti_1p3_provider:lti-launch"):
-            raise LtiException("Invalid target_link_uri path: %s", parsed_url.path)
-
-        qs_parts = parse.parse_qs(parsed_url.query)
-        if not qs_parts.get("course_id"):
-            raise LtiException("Missing course_id in target_link_uri query string")
-        if not qs_parts.get("usage_id"):
-            raise LtiException("Missing usage_id in target_link_uri query string")
-
-        return qs_parts["course_id"][0], qs_parts["usage_id"][0]
 
     def handle_ags(self, course_key: CourseKey, usage_key: UsageKey) -> None:
         """
@@ -285,6 +293,44 @@ class LtiToolLaunchView(LtiToolView):
         )
 
         log.info("LTI 1.3: AGS: Upserted LTI graded resource from launch: %s", resource)
+
+    def _set_session_access(self) -> None:
+        """Setup session to grant lti access to target link uri"""
+        target_link_uri = self._get_target_link_uri()
+        target_link_uri_path = parse.urlparse(target_link_uri)[2]
+        session_lenth = getattr(settings, "LTI_1P3_ACCESS_LENGTH_SEC", 60 * 60)
+        set_lti_session_access(
+            self.request.session, target_link_uri_path, session_lenth
+        )
+
+
+@method_decorator(login_required, name="dispatch")
+class DisplayTargetResource(LtiToolView):
+    """Displays content to user if they have appropriate permissions"""
+
+    def get(self, request, course_id: str, usage_id: str) -> HttpResponse:
+        try:
+            has_access = has_lti_session_access(request.session, request.path)
+        except MissingSessionError as e:
+            log.error(
+                "LTI Session Error: '%s' for user: %s when trying to access path %s",
+                e,
+                self.request.user,
+                self.request.path,
+            )
+            # TODO: Return a proper error page
+            return HttpResponse("Error", status=400)
+
+        if not has_access:
+            # TODO: Render proper error page w/ www-authenticate?
+            return HttpResponseForbidden("Session expired", status=401)
+
+        _, usage_key = parse_course_and_usage_keys(course_id, usage_id)
+        try:
+            return render_courseware(request, usage_key)
+        except Http404 as e:
+            # TODO: Show the nicer error page here
+            return HttpResponse(e, status=404)
 
 
 class LtiToolJwksView(LtiToolView):
