@@ -1,5 +1,5 @@
 import logging
-from datetime import timedelta
+from datetime import datetime
 
 from django.contrib.sessions.backends.base import SessionBase
 from django.utils import timezone
@@ -13,23 +13,22 @@ LTI_SESSION_KEY = "lti_access"
 
 
 def set_lti_session_access(
-    session: SessionBase, path: str, session_length_sec: int
+    session: SessionBase, path: str, expiration: datetime
 ) -> None:
     """Grant access to path for session_lengh seconds"""
-    expiration = timezone.now() + timedelta(seconds=session_length_sec)
     access = {path: expiration.isoformat()}
     if LTI_SESSION_KEY not in session:
         session[LTI_SESSION_KEY] = access
     else:
         session[LTI_SESSION_KEY].update(access)
 
-    log.info("LTI Session Set to: %s", session[LTI_SESSION_KEY])
+    log.debug("LTI Session Set to: %s", session[LTI_SESSION_KEY])
 
 
 def has_lti_session_access(session: SessionBase, path) -> bool:
     """Return True if access to path exists and isn't expired"""
     lti_access = session.get(LTI_SESSION_KEY, None)
-    log.info("LTI Session Fetched: %s", lti_access)
+    log.debug("LTI Session Fetched: %s", lti_access)
     if lti_access is None:
         raise MissingSessionError("Missing lti session key: %s", LTI_SESSION_KEY)
 
