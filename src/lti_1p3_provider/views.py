@@ -46,6 +46,7 @@ from pylti1p3.contrib.django import (
 )
 from pylti1p3.exception import LtiException, OIDCException
 
+from .error_response import ErrorResponse
 from .exceptions import MissingSessionError
 from .models import LtiGradedResource, LtiProfile
 from .session_access import has_lti_session_access, set_lti_session_access
@@ -186,19 +187,16 @@ class LtiToolLaunchView(LtiToolView):
         launch_message.get_launch_data()
         return launch_message
 
-    def get(self, request, course_id: str, usage_id: str):
+    def get(self, request):
         """
-        Show a nicer error in case user uses the Back button in their browser
-
-        This will result in a GET to this normally POST-only endpoint.
+        Show a nicer error since we don't support GET here
         """
-        context = {"disable_header": True}
-        return render(
-            request,
-            "lti_1p3_provider/relaunch_error.html",
-            context=context,
-            status=405,
-        )
+        context = {
+            "disable_header": True,
+            "title": "This page cannot be accessed directly",
+            "error": "Please relaunch your content from its original source to view it.",
+        }
+        return ErrorResponse(request, context, status=405)
 
     # pylint: disable=attribute-defined-outside-init
     def post(self, request):
@@ -237,15 +235,15 @@ class LtiToolLaunchView(LtiToolView):
         return redirect(self._get_target_link_uri())
 
     def _get_course_and_usage_id(self) -> tuple[str, str]:
-        """Return course_id and usage_id from target_link_uri query string"""
+        """Return course_id and usage_id from target_link_uri string"""
         target_link_uri = self._get_target_link_uri()
         path = parse.urlparse(target_link_uri)[2]
         try:
-            log.info("Target link uri: %s", path)
+            log.debug("Target link uri: %s", path)
             match = resolve(path)
         except Resolver404:
-            log.error("target link uri: %s is invalid", target_link_uri)
-            raise LtiException("Invalid target_link_uri path: %s", target_link_uri)
+            log.error("target link uri: %s is invalid", path)
+            raise LtiException("Invalid target_link_uri path: %s", path)
 
         return match.kwargs["course_id"], match.kwargs["usage_id"]
 
@@ -314,9 +312,9 @@ class LtiToolLaunchView(LtiToolView):
             return timezone.now() + timedelta(seconds=override_exp_sec)
 
         # Use the expiration from the JWT if we're not forcing one
-        log.debug("Using JWT exp as lti access length")
-        exp = self.launch_data.get("exp")
-        return datetime.fromtimestamp(exp, tz=timezone.utc)
+        exp = datetime.fromtimestamp(self.launch_data, tz=timezone.utc)
+        log.debug("Using JWT exp as lti access length (%s)", exp)
+        return exp
 
 
 @method_decorator(login_required, name="dispatch")
