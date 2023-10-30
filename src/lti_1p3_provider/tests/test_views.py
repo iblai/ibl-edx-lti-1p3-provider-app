@@ -21,9 +21,9 @@ from .base import URL_LIB_LTI_JWKS
 
 def _get_target_link_uri(course_id, usage_id, domain="http://localhost") -> str:
     """Return tool launch url for course_id, usage_id"""
-    endpoint = reverse("lti_1p3_provider:lti-launch")
-    qs = {"course_id": course_id, "usage_id": usage_id}
-    return f"{domain}{endpoint}?{parse.urlencode(qs)}"
+    kwargs = {"course_id": course_id, "usage_id": usage_id}
+    endpoint = reverse("lti_1p3_provider:lti-display", kwargs=kwargs)
+    return f"{domain}{endpoint}"
 
 
 def _encode_platform_jwt(
@@ -164,7 +164,8 @@ class TestLtiToolLaunchView:
 
         resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.status_code == 200
+        assert resp.status_code == 302
+        breakpoint()
 
     def test_missing_course_id_in_target_link_uri_returns_400(self, client):
         """If the course_id missing in target_link_uri, 400 is returned"""
