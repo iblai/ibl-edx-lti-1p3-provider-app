@@ -8,6 +8,7 @@ from urllib import parse
 
 import jwt
 import pytest
+from bs4 import BeautifulSoup
 from django.conf import settings
 from django.http import HttpResponse
 from django.test import override_settings
@@ -176,21 +177,36 @@ class TestLtiToolLaunchView:
 
     def test_missing_course_id_in_target_link_uri_returns_400(self, client):
         """If the course_id missing in target_link_uri, 400 is returned"""
-        payload = self._get_payload("", factories.USAGE_KEY)
+        base = reverse("lti_1p3_provider:lti-launch")
+        target_link_uri = f"{base}/{str(factories.USAGE_KEY)}"
+        payload = self._get_payload("", "", target_link_uri=target_link_uri)
 
         resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.content == b"Invalid LTI tool launch."
         assert resp.status_code == 400
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
 
     def test_missing_usage_id_in_target_link_uri_returns_400(self, client):
         """If the usage_id missing in target_link_uri, 400 is returned"""
-        payload = self._get_payload(factories.COURSE_KEY, "")
+        base = reverse("lti_1p3_provider:lti-launch")
+        target_link_uri = f"{base}/{str(factories.COURSE_KEY)}"
+        payload = self._get_payload("", "", target_link_uri=target_link_uri)
 
         resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.content == b"Invalid LTI tool launch."
         assert resp.status_code == 400
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
+
+    def test_get_at_launch_endpoint_returns_405(self, client):
+        """If GET to launch endpoint, 405 is returned"""
+        launch_endpoint = reverse("lti_1p3_provider:lti-launch")
+        resp = client.get(launch_endpoint)
+
+        assert resp.status_code == 405
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "This page cannot be accessed directly"
 
     def test_wrong_target_link_uri_path_returns_400(self, client):
         """If the path in target_link_uri doesn't match launchurl, 400 is returned"""
@@ -206,8 +222,9 @@ class TestLtiToolLaunchView:
 
         resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.content == b"Invalid LTI tool launch."
         assert resp.status_code == 400
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
 
     def test_unknown_course_key_returns_404(self, client):
         """If the course/usage_key is unknown, 404 is returned"""
