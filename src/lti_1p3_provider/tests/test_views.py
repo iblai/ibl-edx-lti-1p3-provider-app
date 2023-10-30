@@ -165,7 +165,14 @@ class TestLtiToolLaunchView:
         resp = client.post(self.launch_endpoint, payload)
 
         assert resp.status_code == 302
-        breakpoint()
+        redirect_uri = reverse(
+            "lti_1p3_provider:lti-display",
+            kwargs={
+                "course_id": str(factories.COURSE_KEY),
+                "usage_id": str(factories.USAGE_KEY),
+            },
+        )
+        assert resp.url == f"http://localhost{redirect_uri}"
 
     def test_missing_course_id_in_target_link_uri_returns_400(self, client):
         """If the course_id missing in target_link_uri, 400 is returned"""
