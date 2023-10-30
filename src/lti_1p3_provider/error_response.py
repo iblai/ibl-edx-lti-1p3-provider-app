@@ -32,7 +32,9 @@ class LTIErrorRedirect(HttpResponseRedirect):
             query_string["lti_errolog"] = errorlog
         return query_string
 
-    def _add_lti_error_to_qs(return_url: str, lti_query_params: dict[str, str]) -> str:
+    def _add_lti_error_to_qs(
+        self, return_url: str, lti_query_params: dict[str, str]
+    ) -> str:
         """Return lti return_url with additional lti query params set"""
         parts = parse.urlparse(return_url)
         query = parse.parse_qs(parts.query)
