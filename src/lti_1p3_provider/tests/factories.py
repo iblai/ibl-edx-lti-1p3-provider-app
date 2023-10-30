@@ -108,9 +108,9 @@ class OidcLoginFactory(factory.DictFactory):
     @factory.lazy_attribute
     def target_link_uri(self):
         """Return target link uri for domain, course_id, and usage_id"""
-        endpoint = reverse("lti_1p3_provider:lti-launch")
-        qs = {"course_id": self.course_id, "usage_id": self.usage_id}
-        return f"{self.protocol}://{self.domain}{endpoint}?{parse.urlencode(qs)}"
+        kwargs = {"course_id": self.course_id, "usage_id": self.usage_id}
+        endpoint = reverse("lti_1p3_provider:lti-display", kwargs=kwargs)
+        return f"{self.protocol}://{self.domain}{endpoint}"
 
 
 class LtiToolKeyFactory(factory.django.DjangoModelFactory):
