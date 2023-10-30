@@ -46,7 +46,7 @@ from pylti1p3.contrib.django import (
 )
 from pylti1p3.exception import LtiException, OIDCException
 
-from .error_response import ErrorResponse
+from .error_response import get_lti_error_response, render_edx_error
 from .exceptions import MissingSessionError
 from .models import LtiGradedResource, LtiProfile
 from .session_access import has_lti_session_access, set_lti_session_access
@@ -191,12 +191,9 @@ class LtiToolLaunchView(LtiToolView):
         """
         Show a nicer error since we don't support GET here
         """
-        context = {
-            "disable_header": True,
-            "title": "This page cannot be accessed directly",
-            "error": "Please relaunch your content from its original source to view it.",
-        }
-        return ErrorResponse(request, context, status=405)
+        title = "This page cannot be accessed directly"
+        error = "Please relaunch your content from its original source to view it."
+        return render_edx_error(request, title, error, status=405)
 
     # pylint: disable=attribute-defined-outside-init
     def post(self, request):
@@ -207,22 +204,24 @@ class LtiToolLaunchView(LtiToolView):
         # Parse LTI launch message.
 
         # TODO: Add an optional gate for permissions/purchasing checks of some kind
-        # TODO: Use the optional launch presentation claim to communicate errors if present
 
         try:
             self.launch_message = self.get_launch_message()
             course_id, usage_id = self._get_course_and_usage_id()
             course_key, usage_key = parse_course_and_usage_keys(course_id, usage_id)
+            # TODO: Add client
             log.info("LTI 1.3: Launch course=%s, block: id=%s", course_key, usage_key)
 
         except InvalidKeyError as e:
-            log.error("Invalid Launch Course or UsageKey - %s")
-            # TODO: Improve this to be more specific
-            return HttpResponseBadRequest(f"Invalid Course or Key: {e}")
+            log.error("Invalid Launch Course or UsageKey - %s", e)
+            errorlog = "Invalid course_id or usage_id in target link uri"
+            return get_lti_error_response(
+                request, self.launch_data, errorlog=errorlog, status=400
+            )
 
         except LtiException as exc:
             log.exception("LTI 1.3: Tool launch failed: %s", exc)
-            return self._bad_request_response()
+            return get_lti_error_response(request, self.launch_data, status=400)
 
         log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
 
@@ -335,15 +334,17 @@ class DisplayTargetResource(LtiToolView):
             return HttpResponse("Error", status=400)
 
         if not has_access:
-            # TODO: Render proper error page w/ www-authenticate?
-            return HttpResponseForbidden("Session expired", status=401)
+            title = "Session expired"
+            error = "Please relaunch your content from its source to renew your session"
+            return render_edx_error(request, title, error, status=401)
 
         _, usage_key = parse_course_and_usage_keys(course_id, usage_id)
         try:
             return render_courseware(request, usage_key)
         except Http404 as e:
-            # TODO: Show the nicer error page here
-            return HttpResponse(e, status=404)
+            title = "Content not found"
+            error = "Sorry, but this content cannot be found"
+            return render_edx_error(request, title, error, status=404)
 
 
 class LtiToolJwksView(LtiToolView):
@@ -368,6 +369,9 @@ def render_courseware(request, usage_key):
 
     Return an HttpResponse object that contains the template and necessary
     context to render the courseware.
+
+    NOTE: Taken from lms.djangoapps.lti_provider.views. We could use their version
+    but then would have to enable LTI 1.1 provider for it to be in installed apps.
     """
     # return an HttpResponse object that contains the template and necessary context to render the courseware.
     from lms.djangoapps.courseware.views.views import render_xblock
