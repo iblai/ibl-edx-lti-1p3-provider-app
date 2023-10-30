@@ -311,7 +311,7 @@ class LtiToolLaunchView(LtiToolView):
             return timezone.now() + timedelta(seconds=override_exp_sec)
 
         # Use the expiration from the JWT if we're not forcing one
-        exp = datetime.fromtimestamp(self.launch_data, tz=timezone.utc)
+        exp = datetime.fromtimestamp(self.launch_data["exp"], tz=timezone.utc)
         log.debug("Using JWT exp as lti access length (%s)", exp)
         return exp
 
@@ -343,7 +343,10 @@ class DisplayTargetResource(LtiToolView):
             return render_courseware(request, usage_key)
         except Http404 as e:
             title = "Content not found"
-            error = "Sorry, but this content cannot be found"
+            error = (
+                "Sorry, but this content cannot be found. Please contact your "
+                "technical support for additional assistance."
+            )
             return render_edx_error(request, title, error, status=404)
 
 
