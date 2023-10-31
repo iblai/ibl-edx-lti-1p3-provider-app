@@ -10,9 +10,10 @@ from urllib import parse
 import jwt
 import pytest
 from bs4 import BeautifulSoup
+from crum import CurrentRequestUserMiddleware
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -495,10 +496,8 @@ class TestDisplayTargetResourceView:
             return (now - timedelta(minutes=1)).isoformat()
         return (now + timedelta(hours=1)).isoformat()
 
-    @mock.patch("lti_1p3_provider.views.render_courseware")
-    def test_successfully_renders_content(self, mock_courseware, rf):
-        """When user has proper, unexpired session access, content is rendered"""
-        mock_courseware.return_value = HttpResponse(status=200)
+    def _setup_good_request(self, rf):
+        """Return a properly setup request"""
         request = rf.get(
             self.endpoint,
             course_key=factories.COURSE_KEY,
@@ -506,6 +505,15 @@ class TestDisplayTargetResourceView:
         )
         self._setup_user(request)
         self._setup_session(request)
+        # NOTE: Required when b/c edx mako templates uses CRUM to get current request
+        CurrentRequestUserMiddleware(lambda x: None).process_request(request)
+        return request
+
+    @mock.patch("lti_1p3_provider.views.render_courseware")
+    def test_successfully_renders_content(self, mock_courseware, rf):
+        """When user has proper, unexpired session access, content is rendered"""
+        mock_courseware.return_value = HttpResponse(status=200)
+        request = self._setup_good_request(rf)
         request.session[LTI_SESSION_KEY] = {self.endpoint: self._get_expiration()}
         request.session.save()
 
@@ -517,8 +525,23 @@ class TestDisplayTargetResourceView:
 
         assert resp.status_code == 200
 
-    def test_target_link_uri_content_dne_returns_404(self, rf):
-        """Courseare at target_link_uri cannot be found returns a 404"""
+    @mock.patch("lti_1p3_provider.views.render_courseware")
+    def test_target_link_uri_content_dne_returns_404(self, mock_courseware, rf):
+        """Courseware at target_link_uri cannot be found returns a 404"""
+        mock_courseware.side_effect = Http404()
+        request = self._setup_good_request(rf)
+        request.session[LTI_SESSION_KEY] = {self.endpoint: self._get_expiration()}
+        request.session.save()
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Content Not Found"
+        assert resp.status_code == 404
 
     def test_no_lti_access_in_session_returns_401(self, client):
         """If lti_access key not in session, returns a 401"""
