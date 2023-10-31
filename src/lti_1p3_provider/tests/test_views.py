@@ -186,9 +186,7 @@ class TestLtiToolLaunchView:
 
         assert resp.status_code == 404
 
-    @mock.patch("lti_1p3_provider.views.render_courseware")
     def test_successful_launch(self, mock_courseware, client):
-        mock_courseware.return_value = HttpResponse(status=200)
         payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
 
         resp = client.post(self.launch_endpoint, payload)
@@ -357,12 +355,10 @@ class TestLtiToolLaunchView:
         )
         assert resp.url == f"http://localhost{redirect_uri}"
 
-    @mock.patch("lti_1p3_provider.views.render_courseware")
     def test_handle_ags_no_lineitem_doesnt_create_graded_resource(
         self, mock_courseware, client
     ):
         """If no lineitem claim exists , no graded resource is created"""
-        mock_courseware.return_value = HttpResponse(status=200)
         ags = factories.LtiAgsFactory()
         ags.pop("lineitem")
         payload = self._get_payload(
@@ -482,6 +478,8 @@ class TestLtiToolJwksViewTest:
         assert response.json() == {"keys": []}
 
 
+class
+
 @pytest.mark.django_db
 @pytest.mark.usefixtures("enable_lti_provider")
 class TestDisplayTargetResourceView:
@@ -523,10 +521,8 @@ class TestDisplayTargetResourceView:
         CurrentRequestUserMiddleware(lambda x: None).process_request(request)
         return request
 
-    @mock.patch("lti_1p3_provider.views.render_courseware")
     def test_successfully_renders_content(self, mock_courseware, rf):
         """When user has proper, unexpired session access, content is rendered"""
-        mock_courseware.return_value = HttpResponse(status=200)
         request = self._setup_good_request(rf)
         request.session[LTI_SESSION_KEY] = {self.endpoint: self._get_expiration()}
         request.session.save()
