@@ -29,7 +29,7 @@ class LTIErrorRedirect(HttpResponseRedirect):
         """Build and return the query params for the lti query string"""
         query_string = {"lti_errormsg": f"{title}: {errormsg}"}
         if errorlog:
-            query_string["lti_errolog"] = errorlog
+            query_string["lti_errorlog"] = errorlog
         return query_string
 
     def _add_lti_error_to_qs(
@@ -39,7 +39,7 @@ class LTIErrorRedirect(HttpResponseRedirect):
         parts = parse.urlparse(return_url)
         query = parse.parse_qs(parts.query)
         query.update(lti_query_params)
-        query_str = parse.urlencode(query)
+        query_str = parse.urlencode(query, doseq=True)
         parts = parts._replace(query=query_str)
         return parse.urlunparse(parts)
 
