@@ -344,6 +344,7 @@ class DisplayTargetResource(LtiToolView):
     def get(self, request, course_id: str, usage_id: str) -> HttpResponse:
         try:
             has_access = has_lti_session_access(request.session, request.path)
+
         except MissingSessionError as e:
             log.error(
                 "LTI Session Error: '%s' for user: %s when trying to access path %s",
@@ -352,7 +353,9 @@ class DisplayTargetResource(LtiToolView):
                 self.request.path,
             )
             # TODO: Return a proper error page
-            return HttpResponse("Error", status=400)
+            title = "Invalid or Expired Session"
+            error = "Please relaunch your content from its source to renew your session"
+            return render_edx_error(request, title, error, status=401)
 
         if not has_access:
             title = "Session expired"
@@ -363,7 +366,7 @@ class DisplayTargetResource(LtiToolView):
         try:
             return render_courseware(request, usage_key)
         except Http404 as e:
-            title = "Content not found"
+            title = "Content Not Found"
             error = (
                 "Sorry, but this content cannot be found. Please contact your "
                 "technical support for additional assistance."
