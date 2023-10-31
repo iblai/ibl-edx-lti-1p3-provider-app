@@ -107,11 +107,24 @@ class TestLtiToolLoginView:
 
         assert resp.status_code == 302
 
-    def test_unknown_issuer_returns_400(self, client):
+    def test_get_unknown_issuer_returns_400(self, client):
         """If issuer is unknown, returns a 400"""
         qps_in = factories.OidcLoginFactory()
 
         resp = client.get(self.endpoint, qps_in)
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Login Request"
+        assert resp.status_code == 400
+
+    def test_post_unknown_issuer_returns_400_post(self, client):
+        """If issuer is unknown, returns a 400
+
+        This tests the _get_launch_params POST path
+        """
+        qps_in = factories.OidcLoginFactory()
+
+        resp = client.post(self.endpoint, data=qps_in)
 
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "Invalid LTI Login Request"
