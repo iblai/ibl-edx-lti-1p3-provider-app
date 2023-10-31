@@ -3,6 +3,7 @@ Tests for LTI views.
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from unittest import mock
 from urllib import parse
 
@@ -10,17 +11,25 @@ import jwt
 import pytest
 from bs4 import BeautifulSoup
 from django.conf import settings
+from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from lti_1p3_provider.models import LtiGradedResource, LtiProfile
+from lti_1p3_provider.session_access import LTI_SESSION_KEY
+from lti_1p3_provider.views import DisplayTargetResource
 
 from . import factories, fakes
 from .base import URL_LIB_LTI_JWKS
 
 
-def _get_target_link_uri(course_id, usage_id, domain="http://localhost") -> str:
+def _get_target_link_uri(
+    course_id=str(factories.COURSE_KEY),
+    usage_id=str(factories.USAGE_KEY),
+    domain="http://localhost",
+) -> str:
     """Return tool launch url for course_id, usage_id"""
     kwargs = {"course_id": course_id, "usage_id": usage_id}
     endpoint = reverse("lti_1p3_provider:lti-display", kwargs=kwargs)
@@ -458,9 +467,58 @@ class TestLtiToolJwksViewTest:
         assert response.json() == {"keys": []}
 
 
+@pytest.mark.django_db
+@pytest.mark.usefixtures("enable_lti_provider")
 class TestDisplayTargetResourceView:
-    def test_successfully_renders_content(self, rf):
-        """When user has proper session access, content is rendered"""
+    endpoint = reverse(
+        "lti_1p3_provider:lti-display",
+        kwargs={
+            "course_id": str(factories.COURSE_KEY),
+            "usage_id": str(factories.USAGE_KEY),
+        },
+    )
+
+    def _setup_session(self, request) -> None:
+        """Setup the session for the request"""
+        SessionMiddleware(lambda r: None).process_request(request)
+        request.session.save()
+
+    def _setup_user(self, request) -> None:
+        """Create and add a user to the request"""
+        profile = factories.LtiProfileFactory()
+        request.user = profile.user
+
+    def _get_expiration(self, is_expired: bool = False) -> str:
+        """Return an expiration that may or may not be expired"""
+        now = timezone.now()
+        if is_expired:
+            return (now - timedelta(minutes=1)).isoformat()
+        return (now + timedelta(hours=1)).isoformat()
+
+    @mock.patch("lti_1p3_provider.views.render_courseware")
+    def test_successfully_renders_content(self, mock_courseware, rf):
+        """When user has proper, unexpired session access, content is rendered"""
+        mock_courseware.return_value = HttpResponse(status=200)
+        request = rf.get(
+            self.endpoint,
+            course_key=factories.COURSE_KEY,
+            usage_key=factories.USAGE_KEY,
+        )
+        self._setup_user(request)
+        self._setup_session(request)
+        request.session[LTI_SESSION_KEY] = {self.endpoint: self._get_expiration()}
+        request.session.save()
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        assert resp.status_code == 200
+
+    def test_target_link_uri_content_dne_returns_404(self, rf):
+        """Courseare at target_link_uri cannot be found returns a 404"""
 
     def test_no_lti_access_in_session_returns_401(self, client):
         """If lti_access key not in session, returns a 401"""
@@ -470,6 +528,3 @@ class TestDisplayTargetResourceView:
 
     def test_expired_session_returns_401(self, rf):
         """If target_link_uri exists and expiration is past due, 401 returned"""
-
-    def test_target_link_uri_content_dne_returns_404(self, rf):
-        """Courseare at target_link_uri cannot be found returns a 404"""
