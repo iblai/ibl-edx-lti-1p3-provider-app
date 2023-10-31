@@ -183,9 +183,9 @@ class TestLtiToolLaunchView:
 
         resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.status_code == 400
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "Invalid LTI Tool Launch"
+        assert resp.status_code == 400
 
     def test_missing_usage_id_in_target_link_uri_returns_400(self, client):
         """If the usage_id missing in target_link_uri, 400 is returned"""
@@ -195,18 +195,18 @@ class TestLtiToolLaunchView:
 
         resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.status_code == 400
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "Invalid LTI Tool Launch"
+        assert resp.status_code == 400
 
     def test_get_at_launch_endpoint_returns_405(self, client):
         """If GET to launch endpoint, 405 is returned"""
         launch_endpoint = reverse("lti_1p3_provider:lti-launch")
         resp = client.get(launch_endpoint)
 
-        assert resp.status_code == 405
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "This page cannot be accessed directly"
+        assert resp.status_code == 405
 
     def test_wrong_target_link_uri_path_returns_400(self, client):
         """If the path in target_link_uri doesn't match launchurl, 400 is returned"""
@@ -222,37 +222,34 @@ class TestLtiToolLaunchView:
 
         resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.status_code == 400
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "Invalid LTI Tool Launch"
-
-    def test_unknown_course_key_returns_404(self, client):
-        """If the course/usage_key is unknown, 404 is returned"""
-        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
-
-        resp = client.post(self.launch_endpoint, payload)
-
-        assert resp.content == b"Course not found: course-v1:Org1+Course1+Run1."
-        assert resp.status_code == 404
+        assert resp.status_code == 400
 
     def test_malformed_course_key_returns_400(self, client):
         """If course key is malformed, returns a 400"""
-        invalid_course_key = "course-v1:course1"
-        payload = self._get_payload(invalid_course_key, factories.USAGE_KEY)
+        base = reverse("lti_1p3_provider:lti-launch")
+        target_link_uri = f"{base}course-v1:course1/{str(factories.USAGE_KEY)}"
+        payload = self._get_payload("", "", target_link_uri=target_link_uri)
 
         resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.content.decode("utf-8").startswith("Invalid Course or Key:")
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
         assert resp.status_code == 400
 
     def test_malformed_usage_key_returns_400(self, client):
         """If usage key is malformed, returns a 400"""
-        invalid_usage_key = "block-v1:org1+course1+run1+"
-        payload = self._get_payload(factories.COURSE_KEY, invalid_usage_key)
+        base = reverse("lti_1p3_provider:lti-launch")
+        target_link_uri = (
+            f"{base}{str(factories.COURSE_KEY)}/block-v1:org1+course1+run1"
+        )
+        payload = self._get_payload("", "", target_link_uri=target_link_uri)
 
         resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.content.decode("utf-8").startswith("Invalid Course or Key:")
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
         assert resp.status_code == 400
 
     @pytest.mark.parametrize("key", ("iss", "aud", "sub"))
@@ -271,7 +268,8 @@ class TestLtiToolLaunchView:
 
         resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.content == b"Invalid LTI tool launch."
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
         assert resp.status_code == 400
 
     def test_wrong_pub_key_returns_400(self, client):
@@ -283,7 +281,8 @@ class TestLtiToolLaunchView:
 
         resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.content == b"Invalid LTI tool launch."
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
         assert resp.status_code == 400
 
     @mock.patch("lti_1p3_provider.views.authenticate")
@@ -302,7 +301,7 @@ class TestLtiToolLaunchView:
         (False, True),
     )
     @mock.patch("lti_1p3_provider.views.render_courseware")
-    def test_handle_ags_missing_scopes_doesnt_created_graded_resource(
+    def test_handle_ags_missing_scopes_doesnt_create_graded_resource(
         self, mock_courseware, has_lineitem, client
     ):
         """If missing one of the required scopes, graded resource is not created
@@ -322,7 +321,15 @@ class TestLtiToolLaunchView:
         resp = client.post(self.launch_endpoint, payload)
 
         assert LtiGradedResource.objects.count() == 0
-        assert resp.status_code == 200
+        assert resp.status_code == 302
+        redirect_uri = reverse(
+            "lti_1p3_provider:lti-display",
+            kwargs={
+                "course_id": str(factories.COURSE_KEY),
+                "usage_id": str(factories.USAGE_KEY),
+            },
+        )
+        assert resp.url == f"http://localhost{redirect_uri}"
 
     @mock.patch("lti_1p3_provider.views.render_courseware")
     def test_handle_ags_no_lineitem_doesnt_create_graded_resource(
