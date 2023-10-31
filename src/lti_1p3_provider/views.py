@@ -358,7 +358,7 @@ class DisplayTargetResource(LtiToolView):
             return render_edx_error(request, title, error, status=401)
 
         if not has_access:
-            title = "Session expired"
+            title = "Session Expired"
             error = "Please relaunch your content from its source to renew your session"
             return render_edx_error(request, title, error, status=401)
 
