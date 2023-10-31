@@ -130,7 +130,7 @@ class LtiToolLoginView(LtiToolView):
 
     def _get_launch_params(self) -> dict[str, str]:
         """Return launch params based on launch type"""
-        if self.request.method == "get":
+        if self.request.method == "GET":
             return self.request.GET
         return self.request.POST
 
@@ -363,6 +363,7 @@ class DisplayTargetResource(LtiToolView):
             return render_edx_error(request, title, error, status=401)
 
         _, usage_key = parse_course_and_usage_keys(course_id, usage_id)
+
         try:
             return render_courseware(request, usage_key)
         except Http404 as e:
