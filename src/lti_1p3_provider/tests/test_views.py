@@ -102,7 +102,8 @@ class TestLtiToolLoginView:
 
         resp = client.get(self.endpoint, qps_in)
 
-        assert resp.content == b"Invalid LTI login request."
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Login Request"
         assert resp.status_code == 400
 
     def test_missing_issuer_returns_400(self, client):
@@ -112,7 +113,8 @@ class TestLtiToolLoginView:
 
         resp = client.get(self.endpoint, qps_in)
 
-        assert resp.content == b"Invalid LTI login request."
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Login Request"
         assert resp.status_code == 400
 
 
@@ -302,15 +304,13 @@ class TestLtiToolLaunchView:
         "has_lineitem",
         (False, True),
     )
-    @mock.patch("lti_1p3_provider.views.render_courseware")
     def test_handle_ags_missing_scopes_doesnt_create_graded_resource(
-        self, mock_courseware, has_lineitem, client
+        self, has_lineitem, client
     ):
         """If missing one of the required scopes, graded resource is not created
 
         Currently only score is required
         """
-        mock_courseware.return_value = HttpResponse(status=200)
         ags = factories.LtiAgsFactory(
             has_score_scope=False,
             has_lineitem_scope=has_lineitem,
@@ -358,10 +358,8 @@ class TestLtiToolLaunchView:
         )
         assert resp.url == f"http://localhost{redirect_uri}"
 
-    @mock.patch("lti_1p3_provider.views.render_courseware")
-    def test_handle_ags_graded_resource_created(self, mock_courseware, client):
+    def test_handle_ags_graded_resource_created(self, client):
         """If no lineitem claim exists , no graded resource is created"""
-        mock_courseware.return_value = HttpResponse(status=200)
         ags = factories.LtiAgsFactory()
         payload = self._get_payload(
             factories.COURSE_KEY, factories.USAGE_KEY, lineitem=ags
@@ -399,7 +397,7 @@ class TestLtiToolLaunchView:
         assert resp.status_code == 405
 
     def test_error_returned_via_lti_return_url_with_error_log(self, client):
-        """When return_url present, error is redirected there w/ error_log if exists"""
+        """Error returned via return_url w/ errorlog (when specified)"""
         base = reverse("lti_1p3_provider:lti-launch")
         # Invalid usage key so it will return an error w/ errorlog
         target_link_uri = (
