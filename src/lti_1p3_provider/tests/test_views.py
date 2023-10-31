@@ -379,7 +379,7 @@ class TestLtiToolLaunchView:
         assert resp.url == f"http://localhost{redirect_uri}"
 
     def test_handle_ags_graded_resource_created(self, client):
-        """If no lineitem claim exists , no graded resource is created"""
+        """If lineitem claim exists, graded resource is created"""
         ags = factories.LtiAgsFactory()
         payload = self._get_payload(
             factories.COURSE_KEY, factories.USAGE_KEY, lineitem=ags
