@@ -355,9 +355,7 @@ class TestLtiToolLaunchView:
         )
         assert resp.url == f"http://localhost{redirect_uri}"
 
-    def test_handle_ags_no_lineitem_doesnt_create_graded_resource(
-        self, client
-    ):
+    def test_handle_ags_no_lineitem_doesnt_create_graded_resource(self, client):
         """If no lineitem claim exists , no graded resource is created"""
         ags = factories.LtiAgsFactory()
         ags.pop("lineitem")
@@ -477,8 +475,6 @@ class TestLtiToolJwksViewTest:
         assert response.status_code == 200
         assert response.json() == {"keys": []}
 
-
-class
 
 @pytest.mark.django_db
 @pytest.mark.usefixtures("enable_lti_provider")
