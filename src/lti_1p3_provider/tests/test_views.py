@@ -456,3 +456,20 @@ class TestLtiToolJwksViewTest:
         response = client.get(URL_LIB_LTI_JWKS)
         assert response.status_code == 200
         assert response.json() == {"keys": []}
+
+
+class TestDisplayTargetResourceView:
+    def test_successfully_renders_content(self, rf):
+        """When user has proper session access, content is rendered"""
+
+    def test_no_lti_access_in_session_returns_401(self, client):
+        """If lti_access key not in session, returns a 401"""
+
+    def test_missing_target_link_uri_in_lti_session_returns_401(self, rf):
+        """If target_link_uri is missing from lti_session, 401 returned"""
+
+    def test_expired_session_returns_401(self, rf):
+        """If target_link_uri exists and expiration is past due, 401 returned"""
+
+    def test_target_link_uri_content_dne_returns_404(self, rf):
+        """Courseare at target_link_uri cannot be found returns a 404"""
