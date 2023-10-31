@@ -115,8 +115,24 @@ class LtiToolLoginView(LtiToolView):
         except (OIDCException, LtiException) as exc:
             # Relying on downstream error messages, attempt to sanitize it up
             # for customer facing errors.
-            log.error("LTI OIDC login failed: %s", exc)
-            return HttpResponseBadRequest("Invalid LTI login request.")
+            log.error(
+                "LTI OIDC login failed.\nError: %s\nMethod: %s\nParams: %s",
+                exc,
+                self.request.method,
+                self._get_launch_params(),
+            )
+            return render_edx_error(
+                request,
+                title="Invalid LTI Login Request",
+                error="Please contact your technical support for additional assistance",
+                status=400,
+            )
+
+    def _get_launch_params(self) -> dict[str, str]:
+        """Return launch params based on launch type"""
+        if self.request.method == "get":
+            return self.request.GET
+        return self.request.POST
 
 
 @method_decorator(csrf_exempt, name="dispatch")
