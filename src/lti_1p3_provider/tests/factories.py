@@ -218,6 +218,7 @@ class IdTokenFactory(factory.DictFactory):
         lambda self: ["http://purl.imsglobal.org/vocab/lis/v2/membership#Learner"]
     )
     lineitem = None
+    return_url: str = None
 
     @classmethod
     def _create(cls, model_class, *args, **kwargs):
@@ -237,13 +238,20 @@ class IdTokenFactory(factory.DictFactory):
         )
         obj["https://purl.imsglobal.org/spec/lti/claim/roles"] = obj.pop("roles")
 
-        # Adds optional ags lineitm if present
+        # Adds optional arguments
         if obj["lineitem"]:
             obj["https://purl.imsglobal.org/spec/lti-ags/claim/endpoint"] = obj.pop(
                 "lineitem"
             )
         else:
             obj.pop("lineitem")
+
+        if obj["return_url"]:
+            obj["https://purl.imsglobal.org/spec/lti/claim/launch_presentation"] = {
+                "return_url": obj.pop("return_url")
+            }
+        else:
+            obj.pop("return_url")
 
         return obj
 
