@@ -30,11 +30,11 @@ def has_lti_session_access(session: SessionBase, path) -> bool:
     lti_access = session.get(LTI_SESSION_KEY, None)
     log.debug("LTI Session Fetched: %s", lti_access)
     if lti_access is None:
-        raise MissingSessionError("Missing lti session key: %s", LTI_SESSION_KEY)
+        raise MissingSessionError(f"Missing lti session key: {LTI_SESSION_KEY}")
 
     expiration = lti_access.get(path)
     if not expiration:
-        raise MissingSessionError("Missing path from %s: %s", LTI_SESSION_KEY, path)
+        raise MissingSessionError(f"Missing path from {LTI_SESSION_KEY}: {path}")
 
     expiration = parse_datetime(expiration)
     return True if timezone.now() <= expiration else False
