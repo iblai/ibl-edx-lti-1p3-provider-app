@@ -346,7 +346,15 @@ class TestLtiToolLaunchView:
         resp = client.post(self.launch_endpoint, payload)
 
         assert LtiGradedResource.objects.count() == 0
-        assert resp.status_code == 200
+        assert resp.status_code == 302
+        redirect_uri = reverse(
+            "lti_1p3_provider:lti-display",
+            kwargs={
+                "course_id": str(factories.COURSE_KEY),
+                "usage_id": str(factories.USAGE_KEY),
+            },
+        )
+        assert resp.url == f"http://localhost{redirect_uri}"
 
     @mock.patch("lti_1p3_provider.views.render_courseware")
     def test_handle_ags_graded_resource_created(self, mock_courseware, client):
@@ -368,20 +376,24 @@ class TestLtiToolLaunchView:
         assert resource.resource_title == "Resource Title"
         assert resource.ags_lineitem == ags["lineitem"]
         assert resource.version_number == 0
-        assert resp.status_code == 200
+        assert resp.status_code == 302
+        redirect_uri = reverse(
+            "lti_1p3_provider:lti-display",
+            kwargs={
+                "course_id": str(factories.COURSE_KEY),
+                "usage_id": str(factories.USAGE_KEY),
+            },
+        )
+        assert resp.url == f"http://localhost{redirect_uri}"
 
     def test_get_returns_405_with_error_template(self, client):
         """A GET to the launch endpoint returns a 405 with the error template"""
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
+        endpoint = reverse("lti_1p3_provider:lti-launch")
 
         resp = client.get(endpoint)
 
-        assert (
-            "Please relaunch your content from its original source to view it."
-            in resp.text
-        )
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "This page cannot be accessed directly"
         assert resp.status_code == 405
 
 
