@@ -3,15 +3,18 @@ Unit tests for Content Libraries models.
 """
 
 
-import uuid
 from unittest import mock
 
+import pytest
+import requests_mock
 from django.contrib.auth import get_user_model
-from django.test import RequestFactory, TestCase
-from opaque_keys.edx.keys import CourseKey, UsageKey
-from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool
+from django.test import TestCase
+from django.utils import timezone
+from opaque_keys.edx.keys import CourseKey
 
 from lti_1p3_provider.models import LtiGradedResource, LtiProfile
+
+from . import factories
 
 COURSE_KEY = CourseKey.from_string("course-v1:Org1+Course1+Run1")
 USAGE_KEY = COURSE_KEY.make_usage_key("problem", "some-html-id")
@@ -120,7 +123,8 @@ class LtiProfileTest(TestCase):
         LtiProfile.objects.get_or_create_from_claims(iss=iss, aud=aud, sub=sub_two)
 
 
-class LtiResourceTest(TestCase):
+@pytest.mark.django_db
+class TestLtiGradedResource:
     """
     LtiGradedResource model tests.
     """
@@ -131,18 +135,14 @@ class LtiResourceTest(TestCase):
 
     aud = "fake-aud-for-test"
 
-    def setUp(self):
-        super().setUp()
-        self.request_factory = RequestFactory()
-
     def test_get_from_user_id_when_no_user_then_not_found(self):
         user_id = 0
-        with self.assertRaises(LtiGradedResource.DoesNotExist):
+        with pytest.raises(LtiGradedResource.DoesNotExist):
             LtiGradedResource.objects.get_from_user_id(user_id)
 
     def test_get_from_user_id_when_no_profile_then_not_found(self):
         user = get_user_model().objects.create(username="foobar")
-        with self.assertRaises(LtiGradedResource.DoesNotExist):
+        with pytest.raises(LtiGradedResource.DoesNotExist):
             LtiGradedResource.objects.get_from_user_id(user.pk)
 
     def test_get_from_user_id_when_profile_then_found(self):
@@ -151,7 +151,7 @@ class LtiResourceTest(TestCase):
         )
         LtiGradedResource.objects.create(profile=profile)
         resource = LtiGradedResource.objects.get_from_user_id(profile.user.pk)
-        self.assertEqual(profile, resource.profile)
+        assert profile == resource.profile
 
     def test_upsert_from_ags_launch(self):
         """
@@ -183,14 +183,40 @@ class LtiResourceTest(TestCase):
             profile.user, course_key, usage_key, resource_endpoint, resource_link
         )
 
-        self.assertEqual(resource_id, res.resource_id)
-        self.assertEqual(lineitem, res.ags_lineitem)
-        self.assertEqual(usage_key, res.usage_key)
-        self.assertEqual(profile, res.profile)
-        self.assertEqual(course_key, res.course_key)
+        assert resource_id == res.resource_id
+        assert lineitem == res.ags_lineitem
+        assert usage_key == res.usage_key
+        assert profile == res.profile
+        assert course_key == res.course_key
 
         res2 = LtiGradedResource.objects.upsert_from_ags_launch(
             profile.user, course_key, usage_key, resource_endpoint, resource_link
         )
 
-        self.assertEqual(res, res2)
+        assert res == res2
+
+    @pytest.mark.parametrize("earned, possible", ((0, 1), (5, 10)))
+    def test_update_score(self, earned, possible):
+        """Check we send the right payload when updating a score"""
+        tool = factories.LtiToolFactory()
+        now = timezone.now()
+        resource = factories.LtiGradedResourceFactory(
+            profile__client_id=tool.client_id,
+            profile__platform_id=factories.PLATFORM_ISSUER,
+        )
+        with requests_mock.mock() as m:
+            m.post(tool.auth_token_url, json={"access_token": "test-token"})
+            m.post(f"{resource.ags_lineitem}/scores", status_code=200)
+
+            resource.update_score(earned, possible, now)
+            last_request = m.last_request
+
+        expected_payload = {
+            "scoreGiven": earned / possible,
+            "scoreMaximum": 1,
+            "activityProgress": "Submitted",
+            "gradingProgress": "FullyGraded",
+            "timestamp": now.isoformat(),
+            "userId": resource.profile.subject_id,
+        }
+        assert last_request.json() == expected_payload
