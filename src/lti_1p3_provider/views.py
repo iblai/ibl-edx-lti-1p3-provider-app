@@ -133,7 +133,9 @@ class LtiToolLaunchView(LtiToolView):
 
     @property
     def launch_data(self):
-        return self.launch_message.get_launch_data()
+        if getattr(self, "launch_message", None):
+            return self.launch_message.get_launch_data()
+        return {}
 
     def _authenticate_and_login(self):
         """
@@ -220,7 +222,10 @@ class LtiToolLaunchView(LtiToolView):
             )
 
         except LtiException as exc:
-            log.exception("LTI 1.3: Tool launch failed: %s", exc)
+            log.error("LTI 1.3: Tool launch failed: %s", exc)
+            # TODO: We could possible send the exception string in the errorlog
+            # But would need to ensure it would never be possible it contains sensitive
+            # information
             return get_lti_error_response(request, self.launch_data, status=400)
 
         log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
