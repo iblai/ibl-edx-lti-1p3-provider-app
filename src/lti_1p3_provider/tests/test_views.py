@@ -186,7 +186,7 @@ class TestLtiToolLaunchView:
 
         assert resp.status_code == 404
 
-    def test_successful_launch(self, mock_courseware, client):
+    def test_successful_launch(self, client):
         payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
 
         resp = client.post(self.launch_endpoint, payload)
@@ -356,7 +356,7 @@ class TestLtiToolLaunchView:
         assert resp.url == f"http://localhost{redirect_uri}"
 
     def test_handle_ags_no_lineitem_doesnt_create_graded_resource(
-        self, mock_courseware, client
+        self, client
     ):
         """If no lineitem claim exists , no graded resource is created"""
         ags = factories.LtiAgsFactory()
@@ -521,7 +521,7 @@ class TestDisplayTargetResourceView:
         CurrentRequestUserMiddleware(lambda x: None).process_request(request)
         return request
 
-    def test_successfully_renders_content(self, mock_courseware, rf):
+    def test_successfully_renders_content(self, rf):
         """When user has proper, unexpired session access, content is rendered"""
         request = self._setup_good_request(rf)
         request.session[LTI_SESSION_KEY] = {self.endpoint: self._get_expiration()}

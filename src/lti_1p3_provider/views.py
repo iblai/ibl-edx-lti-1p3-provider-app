@@ -317,7 +317,7 @@ class LtiToolLaunchView(LtiToolView):
     def _set_session_access(self) -> None:
         """Setup session to grant lti access to target link uri"""
         target_link_uri = self._get_target_link_uri()
-        target_link_uri_path = parse.urlparse(target_link_uri)[2]
+        target_link_uri_path = parse.urlparse(target_link_uri).path
         expiration = self._get_lti_session_expiration()
         set_lti_session_access(self.request.session, target_link_uri_path, expiration)
 
