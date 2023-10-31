@@ -136,6 +136,7 @@ class TestLtiToolLaunchView:
         key=factories.PLATFORM_PRIVATE_KEY,
         lineitem=None,
         target_link_uri=None,
+        return_url=None,
     ) -> dict:
         """Generate and return payload with encoded id_token"""
         if target_link_uri is None:
@@ -145,6 +146,7 @@ class TestLtiToolLaunchView:
             nonce="nonce",
             target_link_uri=target_link_uri,
             lineitem=lineitem,
+            return_url=return_url,
         )
         encoded = _encode_platform_jwt(id_token, self.kid, key=key)
         return {"state": "state", "id_token": encoded}
@@ -395,6 +397,35 @@ class TestLtiToolLaunchView:
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "This page cannot be accessed directly"
         assert resp.status_code == 405
+
+    def test_error_returned_via_lti_return_url_with_error_log(self, client):
+        """When return_url present, error is redirected there w/ error_log if exists"""
+        base = reverse("lti_1p3_provider:lti-launch")
+        # Invalid usage key so it will return an error w/ errorlog
+        target_link_uri = (
+            f"{base}{str(factories.COURSE_KEY)}/block-v1:org1+course1+run1"
+        )
+        return_url = "https://endpoint.com/return_url?item=123"
+        payload = self._get_payload(
+            "", "", target_link_uri=target_link_uri, return_url=return_url
+        )
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        assert resp.status_code == 302
+        url_parts = parse.urlparse(resp.url)
+        assert url_parts.scheme == "https"
+        assert url_parts.netloc == "endpoint.com"
+        assert url_parts.path == "/return_url"
+        query_parts = parse.parse_qs(url_parts.query)
+        assert query_parts == {
+            "item": ["123"],
+            "lti_errormsg": [
+                "Invalid LTI Tool Launch: Please contact your technical support for "
+                "additional assistance"
+            ],
+            "lti_errorlog": ["Invalid course_id or usage_id in target link uri"],
+        }
 
 
 @pytest.mark.django_db
