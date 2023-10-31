@@ -195,8 +195,10 @@ class TestLtiGradedResource:
 
         assert res == res2
 
-    @pytest.mark.parametrize("earned, possible", ((0, 1), (5, 10)))
-    def test_update_score(self, earned, possible):
+    @pytest.mark.parametrize(
+        "earned, possible, given", ((0, 0, 0), (0, 1, 0), (5, 10, 0.5))
+    )
+    def test_update_score(self, earned, possible, given):
         """Check we send the right payload when updating a score"""
         tool = factories.LtiToolFactory()
         now = timezone.now()
@@ -212,7 +214,7 @@ class TestLtiGradedResource:
             last_request = m.last_request
 
         expected_payload = {
-            "scoreGiven": earned / possible,
+            "scoreGiven": given,
             "scoreMaximum": 1,
             "activityProgress": "Submitted",
             "gradingProgress": "FullyGraded",
