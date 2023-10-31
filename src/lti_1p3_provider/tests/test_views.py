@@ -517,8 +517,10 @@ class TestDisplayTargetResourceView:
         CurrentRequestUserMiddleware(lambda x: None).process_request(request)
         return request
 
-    def test_successfully_renders_content(self, rf):
+    @mock.patch("lti_1p3_provider.views.render_courseware")
+    def test_successfully_renders_content(self, mock_courseware, rf):
         """When user has proper, unexpired session access, content is rendered"""
+        mock_courseware.return_value = HttpResponse(status=200)
         request = self._setup_good_request(rf)
         request.session[LTI_SESSION_KEY] = {self.endpoint: self._get_expiration()}
         request.session.save()
