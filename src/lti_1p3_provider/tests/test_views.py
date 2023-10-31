@@ -12,6 +12,7 @@ import pytest
 from bs4 import BeautifulSoup
 from crum import CurrentRequestUserMiddleware
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import Http404, HttpResponse
 from django.test import override_settings
@@ -543,11 +544,66 @@ class TestDisplayTargetResourceView:
         assert soup.find("h1").text == "Content Not Found"
         assert resp.status_code == 404
 
-    def test_no_lti_access_in_session_returns_401(self, client):
+    def test_no_lti_access_in_session_returns_401(self, rf):
         """If lti_access key not in session, returns a 401"""
+        request = self._setup_good_request(rf)
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid or Expired Session"
+        assert resp.status_code == 401
 
     def test_missing_target_link_uri_in_lti_session_returns_401(self, rf):
         """If target_link_uri is missing from lti_session, 401 returned"""
+        request = self._setup_good_request(rf)
+        # lti session key exists, but target_link_uri does not
+        request.session[LTI_SESSION_KEY] = {}
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid or Expired Session"
+        assert resp.status_code == 401
 
     def test_expired_session_returns_401(self, rf):
         """If target_link_uri exists and expiration is past due, 401 returned"""
+        request = self._setup_good_request(rf)
+        request.session[LTI_SESSION_KEY] = {
+            self.endpoint: self._get_expiration(is_expired=True)
+        }
+        request.session.save()
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Session Expired"
+        assert resp.status_code == 401
+
+    def test_user_isnt_logged_in_returns_302(self, rf):
+        """If user isn't logged in, a 302 is returned - user redirected to login"""
+        request = self._setup_good_request(rf)
+        # Override user w/ an anonymous one (not logged in)
+        request.user = AnonymousUser()
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        assert resp.status_code == 302
+        url_parts = parse.urlparse(resp.url)
+        assert url_parts.path == "/login"
