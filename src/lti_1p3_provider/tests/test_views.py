@@ -674,8 +674,8 @@ class TestDisplayTargetResourceView:
         assert soup.find("h1").text == "Session Expired"
         assert resp.status_code == 401
 
-    def test_user_isnt_logged_in_returns_302(self, rf):
-        """If user isn't logged in, a 302 is returned - user redirected to login"""
+    def test_user_isnt_logged_in_returns_401(self, rf):
+        """If user isn't logged in, a 401 is returned"""
         request = self._setup_good_request(rf)
         # Override user w/ an anonymous one (not logged in)
         request.user = AnonymousUser()
@@ -686,7 +686,6 @@ class TestDisplayTargetResourceView:
             usage_id=str(factories.USAGE_KEY),
         )
 
-        assert resp.status_code == 302
-        url_parts = parse.urlparse(resp.url)
-        assert url_parts.path == "/login"
-        assert url_parts.path == "/login"
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Unauthorized"
+        assert resp.status_code == 401
