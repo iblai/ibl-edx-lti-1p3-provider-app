@@ -28,14 +28,14 @@ class Lti1p3AuthenticationBackend(ModelBackend):
         """
         Authenticate if the user in the request has an LTI profile.
         """
-        log.info("LTI 1.3 authentication: iss=%s, sub=%s", iss, sub)
+        log.info("Attempting LTI 1.3 authentication: iss=%s, sub=%s", iss, sub)
         try:
             lti_profile = LtiProfile.objects.get_from_claims(iss=iss, aud=aud, sub=sub)
         except LtiProfile.DoesNotExist:
             return None
         user = lti_profile.user
         log.info(
-            "LTI 1.3 authentication profile: profile=%s user=%s", lti_profile, user
+            "LTI 1.3 authentication success: profile=%s user=%s", lti_profile, user
         )
         if user and self.user_can_authenticate(user):
             return user

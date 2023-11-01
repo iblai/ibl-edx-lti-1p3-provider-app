@@ -6,23 +6,11 @@ _By default EdX has no gates for which clients can access which courses. A clien
 
 We can implement a gate at a later time.
 
-**NOTE**
-The implementation currently mimics the existing `LTI 1.1` provider where the launch url is formatted like: `/lti/1p3/launch/<course_id>/<usage_id>`. For LTI 1.3 this means that if a client wants to reuse their securitiy contract for a different launch they would need to add the new URL to their acceptable `redirect_uri`'s.
-
-**Future Breaking Change**
-The more friendly implementation in LTI 1.3 is to use a static launch url: `/lti/1p3/launch/` and then use the `target_link_uri` claim to determine what content to acutally show the user. This allows a consumer to easily reuse an existing security contract in a new resource link.
-
-This implemenation has already been completed on the `feat/#1-static-redirect-uri` branch, but will be a breaking change for consumer as the url formats will change as follows:
-- `redirect_uri`:
-    - from: `/lti/1p3/launch/course-v1:Org+Course+Run/block-v1:Org+Course+Run+type@problem+block@htmlid`
-    - to: `/lti/1p3/launch/`
-- `target_link_uri`:
-    - from: `/lti/1p3/launch/course-v1:Org+Course+Run/block-v1:Org+Course+Run+type@problem+block@htmlid`
-    - to: `/lti/1p3/launch/?course_id=course-v1:Org%2BCourse%2BRun&usage_id=block-v1:Org%2BCourse%2BRun%2Btype@problem%2Bblock@htmlid`
-
 # Installation
+Add optional version tag as necessary.
+
 ```shell
-pip install git+https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app
+pip install git+https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app.git
 ```
 
 # Setup
@@ -39,10 +27,13 @@ These are both implemented in the included `tutor_plugins/enable_lti_1p3_provide
 
 ## Optional Settings
 - `LTI_AGGREGATE_SCORE_PASSBACK_DELAY`: Number of seconds to wait to perform grade passback on composite modules (subsections and units). This helps [batch requests](https://docs.celeryq.dev/en/stable/userguide/calling.html#eta-and-countdown). [default: 15 minutes](https://github.com/openedx/edx-platform/blob/6db1e1db26a0d307446109334f49841aa9aae599/lms/envs/common.py/#L4302-L4312)
+    - **NOTE**: This setting is shared for the LTI 1.1 Provider so would affect both 1.1 and 1.3
+- `LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC`: Number of seconds from launch that the session should be valid for the given piece of content. By default we use the expiration of the `id_token`'s JWT.
 
 
 ## Setup an LTI Tool Key
 You technically only need to do this once. It's going to be the Private/Public key for one or multiple tools to use.
+**NOTE: Never share the private key under any circumstances**
 
 - Go to the django admin
 - Select `Lti 1.3 tool keys` under the `PYLTI 1.3 TOOL CONFIG` heading
@@ -87,17 +78,28 @@ To setup a Tool, complete the following steps. You will need to get several entr
 
 ## Info to give the Platform
 Provide the following information to the `Platform` for their side of the integration:
-- Tool Launch Endpoint: `https://<lms_domain.com>/lti/1p3/launch/<course_id>/<usage_id>`
+- Redirect Uri: `https://<lms_domain.com>/lti/1p3/launch/`
+    - This is where the consumer will post its `id_token` to
+- Tool Launch Endpoint: `https://<lms_domain.com>/lti/1p3/launch/<course_key>/<usage_key>`
+    - This is also known as the `target_link_uri` - the final place the user will be redirected to
 - Login Initiations Endpoint: `https://<lms_domain.com>/lti/1p3/login/`
 - JWKS Endpoint (Tool Keyset): `https://<lms_domain.com>/lti/1p3/pub/jwks/`
 - Deep Linking Endpoint: _Not yet implemented_
 
-To use the LTI Assignment and Grades service (Grade pasback), the `Platform` will need to allow the following scopes for the Tool OAuth2 client:
+To use the LTI Assignment and Grades service (Grade passback), the `Platform` will need to allow the following scopes for the Tool OAuth2 client:
 - `https://purl.imsglobal.org/spec/lti-ags/scope/lineitem`
 - `https://purl.imsglobal.org/spec/lti-ags/scope/score`
 
+## Access and Session Length
+Access to content is controlled by three components:
+- The user must be logged in
+- They must have the `target_link_uri` path in their session
+- They corresponding expiration in that session key must not be expired
+
+The time frame a user can access a given piece of content is controlled by the expiration of the `id_token`'s JWT by default. There is an optional override to allow access for a specific period of time, otherwise via [LTI_1P3_ACCESS_LENGTH_SEC](#optional-settings).
+
 # Additional Notes
-- The course must be published and available (course must be started) for a `Platform` for be able to use it.
+The course and content must be published and available for a `Consumer` for be able to use it. Otherwise it will return a 404.
 
 ## Running Tests
 - Install the [ibl-edx-test-env-plugin](https://github.com/ibleducation/ibl-edx-test-env-plugin) and enable it

@@ -11,11 +11,22 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timedelta
+from urllib import parse
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login
-from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
-from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
+from django.http import (
+    Http404,
+    HttpResponse,
+    HttpResponseBadRequest,
+    HttpResponseForbidden,
+    JsonResponse,
+)
+from django.shortcuts import redirect, render
+from django.urls import Resolver404, resolve, reverse
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -35,10 +46,13 @@ from pylti1p3.contrib.django import (
 )
 from pylti1p3.exception import LtiException, OIDCException
 
+from .error_response import get_lti_error_response, render_edx_error
+from .exceptions import MissingSessionError
 from .models import LtiGradedResource, LtiProfile
+from .session_access import has_lti_session_access, set_lti_session_access
 
-User = get_user_model()
 log = logging.getLogger(__name__)
+User = get_user_model()
 
 
 def requires_lti_enabled(view_func):
@@ -94,19 +108,31 @@ class LtiToolLoginView(LtiToolView):
             self.lti_tool_config,
             launch_data_storage=self.lti_tool_storage,
         )
-        # TODO: Use static redirect url and then target_link_uri for what to render
-        # Would allow us to reuse a single redirect uri and vary the target_link_uri
-        # so it's easier to reuse credentials
-        launch_url = self.request.POST.get(
-            self.LAUNCH_URI_PARAMETER
-        ) or self.request.GET.get(self.LAUNCH_URI_PARAMETER)
         try:
-            return oidc_login.redirect(launch_url)
+            return oidc_login.redirect(
+                self.request.build_absolute_uri(reverse("lti_1p3_provider:lti-launch"))
+            )
         except (OIDCException, LtiException) as exc:
             # Relying on downstream error messages, attempt to sanitize it up
             # for customer facing errors.
-            log.error("LTI OIDC login failed: %s", exc)
-            return HttpResponseBadRequest("Invalid LTI login request.")
+            log.error(
+                "LTI OIDC login failed.\nError: %s\nMethod: %s\nParams: %s",
+                exc,
+                self.request.method,
+                self._get_launch_params(),
+            )
+            return render_edx_error(
+                request,
+                title="Invalid LTI Login Request",
+                error="Please contact your technical support for additional assistance",
+                status=400,
+            )
+
+    def _get_launch_params(self) -> dict[str, str]:
+        """Return launch params based on launch type"""
+        if self.request.method == "GET":
+            return self.request.GET
+        return self.request.POST
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -123,7 +149,9 @@ class LtiToolLaunchView(LtiToolView):
 
     @property
     def launch_data(self):
-        return self.launch_message.get_launch_data()
+        if getattr(self, "launch_message", None):
+            return self.launch_message.get_launch_data()
+        return {}
 
     def _authenticate_and_login(self):
         """
@@ -177,41 +205,44 @@ class LtiToolLaunchView(LtiToolView):
         launch_message.get_launch_data()
         return launch_message
 
-    def get(self, request, course_id: str, usage_id: str):
+    def get(self, request):
         """
-        Show a nicer error in case user uses the Back button in their browser
-
-        This will result in a GET to this normally POST-only endpoint.
+        Show a nicer error since we don't support GET here
         """
-        context = {"disable_header": True}
-        return render(
-            request,
-            "lti_1p3_provider/relaunch_error.html",
-            context=context,
-            status=405,
-        )
+        title = "This page cannot be accessed directly"
+        error = "Please relaunch your content from its original source to view it."
+        return render_edx_error(request, title, error, status=405)
 
     # pylint: disable=attribute-defined-outside-init
-    def post(self, request, course_id: str, usage_id: str):
+    def post(self, request):
         """
         Process LTI platform launch requests.
         """
 
         # Parse LTI launch message.
 
+        # TODO: Add an optional gate for permissions/purchasing checks of some kind
+
         try:
-            course_key, usage_key = parse_course_and_usage_keys(course_id, usage_id)
-            log.info("LTI 1.3: Launch course=%s, block: id=%s", course_key, usage_key)
             self.launch_message = self.get_launch_message()
+            course_id, usage_id = self._get_course_and_usage_id()
+            course_key, usage_key = parse_course_and_usage_keys(course_id, usage_id)
+            # TODO: Add client
+            log.info("LTI 1.3: Launch course=%s, block: id=%s", course_key, usage_key)
 
         except InvalidKeyError as e:
-            log.error("Invalid Launch Course or UsageKey - %s")
-            # TODO: Improve this to be more specific
-            return HttpResponseBadRequest(f"Invalid Course or Key: {e}")
+            log.error("Invalid Launch Course or UsageKey - %s", e)
+            errorlog = "Invalid course_id or usage_id in target link uri"
+            return get_lti_error_response(
+                request, self.launch_data, errorlog=errorlog, status=400
+            )
 
         except LtiException as exc:
-            log.exception("LTI 1.3: Tool launch failed: %s", exc)
-            return self._bad_request_response()
+            log.error("LTI 1.3: Tool launch failed: %s", exc)
+            # TODO: We could possible send the exception string in the errorlog
+            # But would need to ensure it would never be possible it contains sensitive
+            # information
+            return get_lti_error_response(request, self.launch_data, status=400)
 
         log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
 
@@ -220,12 +251,27 @@ class LtiToolLaunchView(LtiToolView):
             return self._bad_request_response()
 
         self.handle_ags(course_key, usage_key)
+        self._set_session_access()
+        return redirect(self._get_target_link_uri())
 
-        # Render context and response.
+    def _get_course_and_usage_id(self) -> tuple[str, str]:
+        """Return course_id and usage_id from target_link_uri string"""
+        target_link_uri = self._get_target_link_uri()
+        path = parse.urlparse(target_link_uri)[2]
         try:
-            return render_courseware(request, usage_key)
-        except Http404 as e:
-            return HttpResponse(e, status=404)
+            log.debug("Target link uri: %s", path)
+            match = resolve(path)
+        except Resolver404:
+            log.error("target link uri: %s is invalid", path)
+            raise LtiException("Invalid target_link_uri path: %s", path)
+
+        return match.kwargs["course_id"], match.kwargs["usage_id"]
+
+    def _get_target_link_uri(self) -> str:
+        """Return target link URI from payload"""
+        return self.launch_data.get(
+            "https://purl.imsglobal.org/spec/lti/claim/target_link_uri"
+        )
 
     def handle_ags(self, course_key: CourseKey, usage_key: UsageKey) -> None:
         """
@@ -268,6 +314,84 @@ class LtiToolLaunchView(LtiToolView):
 
         log.info("LTI 1.3: AGS: Upserted LTI graded resource from launch: %s", resource)
 
+    def _set_session_access(self) -> None:
+        """Setup session to grant lti access to target link uri"""
+        target_link_uri = self._get_target_link_uri()
+        target_link_uri_path = parse.urlparse(target_link_uri).path
+        expiration = self._get_lti_session_expiration()
+        set_lti_session_access(self.request.session, target_link_uri_path, expiration)
+
+    def _get_lti_session_expiration(self) -> datetime:
+        """Return expiration for LTI Session for this path"""
+        override_exp_sec = getattr(settings, "LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC", None)
+        if override_exp_sec is not None:
+            log.debug(
+                "Using LTI_1P3_ACCESS_LENGTH_SEC as lti access length: %s",
+                override_exp_sec,
+            )
+            return timezone.now() + timedelta(seconds=override_exp_sec)
+
+        # Use the expiration from the JWT if we're not forcing one
+        exp = datetime.fromtimestamp(self.launch_data["exp"], tz=timezone.utc)
+        log.debug("Using JWT exp as lti access length (%s)", exp)
+        return exp
+
+
+class DisplayTargetResource(LtiToolView):
+    """Displays content to user if they have appropriate permissions"""
+
+    default_error = "Please relaunch your content from its source to renew your session"
+
+    def get(self, request, course_id: str, usage_id: str) -> HttpResponse:
+        if not request.user.is_authenticated:
+            log.warning("Anonymous user tried to access %s", self.request.path)
+            return self._render_unathorized()
+
+        try:
+            has_access = has_lti_session_access(request.session, request.path)
+        except MissingSessionError as e:
+            log.warning("LTI Session Error: %s @ path: %s", e, self.request.path)
+            return self._render_invalid_or_expired_error(e)
+
+        if not has_access:
+            log.info("LTI access expired at: %s", self.request.path)
+            return self._render_expired_session_error()
+
+        _, usage_key = parse_course_and_usage_keys(course_id, usage_id)
+        try:
+            return render_courseware(request, usage_key)
+
+        except Http404 as e:
+            log.warning("LTI Content DNE: %s. Is it published?", self.request.path)
+            return self._render_content_not_found_error()
+
+    def _render_unathorized(self):
+        """Return an authorized response"""
+        title = "Unauthorized"
+        error = (
+            "Please relaunch this LTI resource from its original source to " "access it"
+        )
+        return render_edx_error(self.request, title, error, status=401)
+
+    def _render_invalid_or_expired_error(self, exc: MissingSessionError):
+        """Return an Invalid or Expired Session response"""
+        title = "Invalid or Expired Session"
+        return render_edx_error(self.request, title, self.default_error, status=401)
+
+    def _render_expired_session_error(self):
+        """Render an Expired Session response"""
+        title = "Session Expired"
+        return render_edx_error(self.request, title, self.default_error, status=401)
+
+    def _render_content_not_found_error(self):
+        """Return a Content Not Found response"""
+        title = "Content Not Found"
+        error = (
+            "Sorry, but this content cannot be found. Please contact your "
+            "technical support for additional assistance."
+        )
+        return render_edx_error(self.request, title, error, status=404)
+
 
 class LtiToolJwksView(LtiToolView):
     """
@@ -291,6 +415,9 @@ def render_courseware(request, usage_key):
 
     Return an HttpResponse object that contains the template and necessary
     context to render the courseware.
+
+    NOTE: Taken from lms.djangoapps.lti_provider.views. We could use their version
+    but then would have to enable LTI 1.1 provider for it to be in installed apps.
     """
     # return an HttpResponse object that contains the template and necessary context to render the courseware.
     from lms.djangoapps.courseware.views.views import render_xblock

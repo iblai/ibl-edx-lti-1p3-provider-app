@@ -1,5 +1,6 @@
 import json
 from time import time
+from urllib import parse
 
 import factory
 from common.djangoapps.student.tests.factories import UserFactory
@@ -107,10 +108,8 @@ class OidcLoginFactory(factory.DictFactory):
     @factory.lazy_attribute
     def target_link_uri(self):
         """Return target link uri for domain, course_id, and usage_id"""
-        endpoint = reverse(
-            "lti_1p3_provider:lti-launch",
-            kwargs={"course_id": self.course_id, "usage_id": self.usage_id},
-        )
+        kwargs = {"course_id": self.course_id, "usage_id": self.usage_id}
+        endpoint = reverse("lti_1p3_provider:lti-display", kwargs=kwargs)
         return f"{self.protocol}://{self.domain}{endpoint}"
 
 
@@ -219,6 +218,7 @@ class IdTokenFactory(factory.DictFactory):
         lambda self: ["http://purl.imsglobal.org/vocab/lis/v2/membership#Learner"]
     )
     lineitem = None
+    return_url: str = None
 
     @classmethod
     def _create(cls, model_class, *args, **kwargs):
@@ -238,13 +238,20 @@ class IdTokenFactory(factory.DictFactory):
         )
         obj["https://purl.imsglobal.org/spec/lti/claim/roles"] = obj.pop("roles")
 
-        # Adds optional ags lineitm if present
+        # Adds optional arguments
         if obj["lineitem"]:
             obj["https://purl.imsglobal.org/spec/lti-ags/claim/endpoint"] = obj.pop(
                 "lineitem"
             )
         else:
             obj.pop("lineitem")
+
+        if obj["return_url"]:
+            obj["https://purl.imsglobal.org/spec/lti/claim/launch_presentation"] = {
+                "return_url": obj.pop("return_url")
+            }
+        else:
+            obj.pop("return_url")
 
         return obj
 

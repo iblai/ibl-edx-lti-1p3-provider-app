@@ -3,28 +3,38 @@ Tests for LTI views.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from unittest import mock
 from urllib import parse
 
 import jwt
 import pytest
+from bs4 import BeautifulSoup
+from crum import CurrentRequestUserMiddleware
 from django.conf import settings
-from django.http import HttpResponse
+from django.contrib.auth.models import AnonymousUser
+from django.contrib.sessions.middleware import SessionMiddleware
+from django.http import Http404, HttpResponse
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from lti_1p3_provider.models import LtiGradedResource, LtiProfile
+from lti_1p3_provider.session_access import LTI_SESSION_KEY
+from lti_1p3_provider.views import DisplayTargetResource, LtiToolLaunchView
 
 from . import factories, fakes
 from .base import URL_LIB_LTI_JWKS
 
 
-def _get_target_link_uri(course_id, usage_id, domain="https://localhost") -> str:
+def _get_target_link_uri(
+    course_id=str(factories.COURSE_KEY),
+    usage_id=str(factories.USAGE_KEY),
+    domain="http://localhost",
+) -> str:
     """Return tool launch url for course_id, usage_id"""
-    endpoint = reverse(
-        "lti_1p3_provider:lti-launch",
-        kwargs={"course_id": course_id, "usage_id": usage_id},
-    )
+    kwargs = {"course_id": course_id, "usage_id": usage_id}
+    endpoint = reverse("lti_1p3_provider:lti-display", kwargs=kwargs)
     return f"{domain}{endpoint}"
 
 
@@ -83,7 +93,13 @@ class TestLtiToolLoginView:
         assert qps["prompt"] == ["none"]
         assert qps["client_id"] == [tool.client_id]
         assert qps["login_hint"] == [qps_in["login_hint"]]
-        assert qps["redirect_uri"] == [qps_in["target_link_uri"]]
+        target_link_uri = _get_target_link_uri(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        assert target_link_uri == qps_in["target_link_uri"]
+        assert qps["redirect_uri"] == [
+            f'http://testserver{reverse("lti_1p3_provider:lti-launch")}'
+        ]
 
         # Just make sure these aren't empty
         assert qps["state"]
@@ -91,13 +107,27 @@ class TestLtiToolLoginView:
 
         assert resp.status_code == 302
 
-    def test_unknown_issuer_returns_400(self, client):
+    def test_get_unknown_issuer_returns_400(self, client):
         """If issuer is unknown, returns a 400"""
         qps_in = factories.OidcLoginFactory()
 
         resp = client.get(self.endpoint, qps_in)
 
-        assert resp.content == b"Invalid LTI login request."
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Login Request"
+        assert resp.status_code == 400
+
+    def test_post_unknown_issuer_returns_400_post(self, client):
+        """If issuer is unknown, returns a 400
+
+        This tests the _get_launch_params POST path
+        """
+        qps_in = factories.OidcLoginFactory()
+
+        resp = client.post(self.endpoint, data=qps_in)
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Login Request"
         assert resp.status_code == 400
 
     def test_missing_issuer_returns_400(self, client):
@@ -107,7 +137,8 @@ class TestLtiToolLoginView:
 
         resp = client.get(self.endpoint, qps_in)
 
-        assert resp.content == b"Invalid LTI login request."
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Login Request"
         assert resp.status_code == 400
 
 
@@ -118,17 +149,11 @@ class TestLtiToolLoginView:
     new=fakes.FakeDjangoSessionService,
 )
 class TestLtiToolLaunchView:
-    login_endpoint = reverse("lti_1p3_provider:lti-login")
+    launch_endpoint = reverse("lti_1p3_provider:lti-launch")
 
     def setup_method(self):
         self.tool = factories.LtiToolFactory()
         self.kid = self.tool.to_dict()["key_set"]["keys"][0]["kid"]
-
-    def _get_launch_endpoint(self, course_id: str, usage_id: str) -> str:
-        return reverse(
-            "lti_1p3_provider:lti-launch",
-            kwargs={"course_id": course_id, "usage_id": usage_id},
-        )
 
     def _get_payload(
         self,
@@ -136,14 +161,18 @@ class TestLtiToolLaunchView:
         usage_key,
         key=factories.PLATFORM_PRIVATE_KEY,
         lineitem=None,
+        target_link_uri=None,
+        return_url=None,
     ) -> dict:
         """Generate and return payload with encoded id_token"""
-        target_link_uri = _get_target_link_uri(str(course_key), str(usage_key))
+        if target_link_uri is None:
+            target_link_uri = _get_target_link_uri(str(course_key), str(usage_key))
         id_token = factories.IdTokenFactory(
             aud=self.tool.client_id,
             nonce="nonce",
             target_link_uri=target_link_uri,
             lineitem=lineitem,
+            return_url=return_url,
         )
         encoded = _encode_platform_jwt(id_token, self.kid, key=key)
         return {"state": "state", "id_token": encoded}
@@ -151,68 +180,106 @@ class TestLtiToolLaunchView:
     def test_lti_provider_disabled_returns_404(self, client):
         """When ENABLE_LTI_1P3_PROVIDER is False, a 404 is returned"""
         factories.LtiToolFactory()
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
         with override_features(ENABLE_LTI_1P3_PROVIDER=False):
-            resp = client.post(endpoint, payload)
+            resp = client.post(self.launch_endpoint, payload)
 
         assert resp.status_code == 404
 
-    @mock.patch("lti_1p3_provider.views.render_courseware")
-    def test_successful_launch(self, mock_courseware, client):
-        mock_courseware.return_value = HttpResponse(status=200)
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
+    def test_successful_launch(self, client):
         payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.status_code == 200
-
-    def test_unknown_course_key_returns_404(self, client):
-        """If the course/usage_key is unknown, 404 is returned"""
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        assert resp.status_code == 302
+        redirect_uri = reverse(
+            "lti_1p3_provider:lti-display",
+            kwargs={
+                "course_id": str(factories.COURSE_KEY),
+                "usage_id": str(factories.USAGE_KEY),
+            },
         )
-        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+        assert resp.url == f"http://localhost{redirect_uri}"
 
-        resp = client.post(endpoint, payload)
+    def test_missing_course_id_in_target_link_uri_returns_400(self, client):
+        """If the course_id missing in target_link_uri, 400 is returned"""
+        base = reverse("lti_1p3_provider:lti-launch")
+        target_link_uri = f"{base}/{str(factories.USAGE_KEY)}"
+        payload = self._get_payload("", "", target_link_uri=target_link_uri)
 
-        assert resp.content == b"Course not found: course-v1:Org1+Course1+Run1."
-        assert resp.status_code == 404
+        resp = client.post(self.launch_endpoint, payload)
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
+        assert resp.status_code == 400
+
+    def test_missing_usage_id_in_target_link_uri_returns_400(self, client):
+        """If the usage_id missing in target_link_uri, 400 is returned"""
+        base = reverse("lti_1p3_provider:lti-launch")
+        target_link_uri = f"{base}/{str(factories.COURSE_KEY)}"
+        payload = self._get_payload("", "", target_link_uri=target_link_uri)
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
+        assert resp.status_code == 400
+
+    def test_get_at_launch_endpoint_returns_405(self, client):
+        """If GET to launch endpoint, 405 is returned"""
+        launch_endpoint = reverse("lti_1p3_provider:lti-launch")
+        resp = client.get(launch_endpoint)
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "This page cannot be accessed directly"
+        assert resp.status_code == 405
+
+    def test_wrong_target_link_uri_path_returns_400(self, client):
+        """If the path in target_link_uri doesn't match launchurl, 400 is returned"""
+        path = "/some/other/path/"
+        qs = {
+            "course_id": str(factories.COURSE_KEY),
+            "usage_id": str(factories.USAGE_KEY),
+        }
+        target_link_uri = f"https://localhost{path}?{parse.urlencode(qs)}"
+        payload = self._get_payload(
+            factories.COURSE_KEY, factories.USAGE_KEY, target_link_uri=target_link_uri
+        )
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
+        assert resp.status_code == 400
 
     def test_malformed_course_key_returns_400(self, client):
         """If course key is malformed, returns a 400"""
-        endpoint = self._get_launch_endpoint(
-            "course-v1:not+a+valid+course", str(factories.USAGE_KEY)
-        )
-        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+        base = reverse("lti_1p3_provider:lti-launch")
+        target_link_uri = f"{base}course-v1:course1/{str(factories.USAGE_KEY)}"
+        payload = self._get_payload("", "", target_link_uri=target_link_uri)
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.content.decode("utf-8").startswith("Invalid Course or Key:")
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
         assert resp.status_code == 400
 
     def test_malformed_usage_key_returns_400(self, client):
         """If usage key is malformed, returns a 400"""
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), "block-v1:not+the+right+type@something-format"
+        base = reverse("lti_1p3_provider:lti-launch")
+        target_link_uri = (
+            f"{base}{str(factories.COURSE_KEY)}/block-v1:org1+course1+run1"
         )
-        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+        payload = self._get_payload("", "", target_link_uri=target_link_uri)
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.content.decode("utf-8").startswith("Invalid Course or Key:")
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
         assert resp.status_code == 400
 
     @pytest.mark.parametrize("key", ("iss", "aud", "sub"))
     def test_missing_iss_aud_sub_returns_400(self, key, client):
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         target_link_uri = _get_target_link_uri(
             str(factories.COURSE_KEY), str(factories.USAGE_KEY)
         )
@@ -225,36 +292,32 @@ class TestLtiToolLaunchView:
         encoded = _encode_platform_jwt(id_token, self.kid)
         payload = {"state": "state", "id_token": encoded}
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.content == b"Invalid LTI tool launch."
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
         assert resp.status_code == 400
 
     def test_wrong_pub_key_returns_400(self, client):
         """Test unable to decode returns 400"""
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         # Encoding w/ tool's private key but will try to decode w/ platforms pub key
         payload = self._get_payload(
             factories.COURSE_KEY, factories.USAGE_KEY, key=factories.TOOL_PRIVATE_KEY
         )
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
-        assert resp.content == b"Invalid LTI tool launch."
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
         assert resp.status_code == 400
 
     @mock.patch("lti_1p3_provider.views.authenticate")
     def test_when_authenticate_fails_returns_400(self, mock_auth, client):
         """If authenticate fails, a 400 is returns"""
         mock_auth.return_value = None
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert resp.content == b"Invalid LTI tool launch."
         assert resp.status_code == 400
@@ -263,18 +326,13 @@ class TestLtiToolLaunchView:
         "has_lineitem",
         (False, True),
     )
-    @mock.patch("lti_1p3_provider.views.render_courseware")
-    def test_handle_ags_missing_scopes_doesnt_created_graded_resource(
-        self, mock_courseware, has_lineitem, client
+    def test_handle_ags_missing_scopes_doesnt_create_graded_resource(
+        self, has_lineitem, client
     ):
         """If missing one of the required scopes, graded resource is not created
 
         Currently only score is required
         """
-        mock_courseware.return_value = HttpResponse(status=200)
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
         ags = factories.LtiAgsFactory(
             has_score_scope=False,
             has_lineitem_scope=has_lineitem,
@@ -284,44 +342,48 @@ class TestLtiToolLaunchView:
             factories.COURSE_KEY, factories.USAGE_KEY, lineitem=ags
         )
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert LtiGradedResource.objects.count() == 0
-        assert resp.status_code == 200
-
-    @mock.patch("lti_1p3_provider.views.render_courseware")
-    def test_handle_ags_no_lineitem_doesnt_create_graded_resource(
-        self, mock_courseware, client
-    ):
-        """If no lineitem claim exists , no graded resource is created"""
-        mock_courseware.return_value = HttpResponse(status=200)
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        assert resp.status_code == 302
+        redirect_uri = reverse(
+            "lti_1p3_provider:lti-display",
+            kwargs={
+                "course_id": str(factories.COURSE_KEY),
+                "usage_id": str(factories.USAGE_KEY),
+            },
         )
+        assert resp.url == f"http://localhost{redirect_uri}"
+
+    def test_handle_ags_no_lineitem_doesnt_create_graded_resource(self, client):
+        """If no lineitem claim exists , no graded resource is created"""
         ags = factories.LtiAgsFactory()
         ags.pop("lineitem")
         payload = self._get_payload(
             factories.COURSE_KEY, factories.USAGE_KEY, lineitem=ags
         )
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert LtiGradedResource.objects.count() == 0
-        assert resp.status_code == 200
-
-    @mock.patch("lti_1p3_provider.views.render_courseware")
-    def test_handle_ags_graded_resource_created(self, mock_courseware, client):
-        """If no lineitem claim exists , no graded resource is created"""
-        mock_courseware.return_value = HttpResponse(status=200)
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        assert resp.status_code == 302
+        redirect_uri = reverse(
+            "lti_1p3_provider:lti-display",
+            kwargs={
+                "course_id": str(factories.COURSE_KEY),
+                "usage_id": str(factories.USAGE_KEY),
+            },
         )
+        assert resp.url == f"http://localhost{redirect_uri}"
+
+    def test_handle_ags_graded_resource_created(self, client):
+        """If lineitem claim exists, graded resource is created"""
         ags = factories.LtiAgsFactory()
         payload = self._get_payload(
             factories.COURSE_KEY, factories.USAGE_KEY, lineitem=ags
         )
 
-        resp = client.post(endpoint, payload)
+        resp = client.post(self.launch_endpoint, payload)
 
         assert LtiGradedResource.objects.count() == 1
         resource = LtiGradedResource.objects.first()
@@ -332,21 +394,129 @@ class TestLtiToolLaunchView:
         assert resource.resource_title == "Resource Title"
         assert resource.ags_lineitem == ags["lineitem"]
         assert resource.version_number == 0
-        assert resp.status_code == 200
+        assert resp.status_code == 302
+        redirect_uri = reverse(
+            "lti_1p3_provider:lti-display",
+            kwargs={
+                "course_id": str(factories.COURSE_KEY),
+                "usage_id": str(factories.USAGE_KEY),
+            },
+        )
+        assert resp.url == f"http://localhost{redirect_uri}"
 
     def test_get_returns_405_with_error_template(self, client):
         """A GET to the launch endpoint returns a 405 with the error template"""
-        endpoint = self._get_launch_endpoint(
-            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
-        )
+        endpoint = reverse("lti_1p3_provider:lti-launch")
 
         resp = client.get(endpoint)
 
-        assert (
-            "Please relaunch your content from its original source to view it."
-            in resp.text
-        )
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "This page cannot be accessed directly"
         assert resp.status_code == 405
+
+    def test_error_returned_via_lti_return_url_with_error_log(self, client):
+        """Error returned via return_url w/ errorlog (when specified)"""
+        base = reverse("lti_1p3_provider:lti-launch")
+        # Invalid usage key so it will return an error w/ errorlog
+        target_link_uri = (
+            f"{base}{str(factories.COURSE_KEY)}/block-v1:org1+course1+run1"
+        )
+        return_url = "https://endpoint.com/return_url?item=123"
+        payload = self._get_payload(
+            "", "", target_link_uri=target_link_uri, return_url=return_url
+        )
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        assert resp.status_code == 302
+        url_parts = parse.urlparse(resp.url)
+        assert url_parts.scheme == "https"
+        assert url_parts.netloc == "endpoint.com"
+        assert url_parts.path == "/return_url"
+        query_parts = parse.parse_qs(url_parts.query)
+        assert query_parts == {
+            "item": ["123"],
+            "lti_errormsg": [
+                "Invalid LTI Tool Launch: Please contact your technical support for "
+                "additional assistance"
+            ],
+            "lti_errorlog": ["Invalid course_id or usage_id in target link uri"],
+        }
+
+    def test_session_exp_set_to_jwt_exp(self, rf):
+        """Session expiration is set to JWT exp by default"""
+        target_link_uri = _get_target_link_uri()
+        target_link_path = parse.urlparse(target_link_uri).path
+        id_token = factories.IdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            target_link_uri=target_link_uri,
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
+        request = rf.post(self.launch_endpoint, data=payload)
+        SessionMiddleware().process_request(request)
+        request.session.save()
+
+        LtiToolLaunchView.as_view()(request)
+
+        expected = {
+            target_link_path: datetime.fromtimestamp(
+                id_token["exp"], tz=timezone.utc
+            ).isoformat()
+        }
+        assert request.session[LTI_SESSION_KEY] == expected
+
+    @override_settings(LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC=100)
+    def test_session_exp_set_to_settings_value(self, rf):
+        """Session expiration is set to the override value when present"""
+        target_link_uri = _get_target_link_uri()
+        target_link_path = parse.urlparse(target_link_uri).path
+        id_token = factories.IdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            target_link_uri=target_link_uri,
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
+        request = rf.post(self.launch_endpoint, data=payload)
+        SessionMiddleware().process_request(request)
+        request.session.save()
+        now = timezone.now()
+
+        # NOTE: Need to mock here b/c otherwise it gets overridden everywhere and
+        # you can't save the session. Maybe a better way to do this?
+        with mock.patch("lti_1p3_provider.views.timezone.now") as mock_now:
+            mock_now.return_value = now
+            LtiToolLaunchView.as_view()(request)
+
+        expected = {target_link_path: (now + timedelta(seconds=100)).isoformat()}
+        assert request.session[LTI_SESSION_KEY] == expected
+
+    def test_user_can_have_multiple_active_lti_access_sessions(self, rf):
+        """Multiple Sessions can be added to user's existing login"""
+        course2 = "course-v1:Org+Course2+Run"
+        target_link_uri_1 = _get_target_link_uri()
+        target_link_path_1 = parse.urlparse(target_link_uri_1).path
+        target_link_uri_2 = _get_target_link_uri(course_id=course2)
+        target_link_path_2 = parse.urlparse(target_link_uri_2).path
+        payload = self._get_payload(course2, factories.USAGE_KEY)
+        request = rf.post(self.launch_endpoint, data=payload)
+        SessionMiddleware().process_request(request)
+        link_1_exp = timezone.now()
+        request.session[LTI_SESSION_KEY] = {target_link_path_1: link_1_exp.isoformat()}
+        request.session.save()
+
+        LtiToolLaunchView.as_view()(request)
+
+        assert request.session[LTI_SESSION_KEY].keys() == {
+            target_link_path_1,
+            target_link_path_2,
+        }
+        assert (
+            request.session[LTI_SESSION_KEY][target_link_path_1]
+            == link_1_exp.isoformat()
+        )
 
 
 @pytest.mark.django_db
@@ -379,3 +549,143 @@ class TestLtiToolJwksViewTest:
         response = client.get(URL_LIB_LTI_JWKS)
         assert response.status_code == 200
         assert response.json() == {"keys": []}
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("enable_lti_provider")
+class TestDisplayTargetResourceView:
+    endpoint = reverse(
+        "lti_1p3_provider:lti-display",
+        kwargs={
+            "course_id": str(factories.COURSE_KEY),
+            "usage_id": str(factories.USAGE_KEY),
+        },
+    )
+
+    def _setup_session(self, request) -> None:
+        """Setup the session for the request"""
+        SessionMiddleware(lambda r: None).process_request(request)
+        request.session.save()
+
+    def _setup_user(self, request) -> None:
+        """Create and add a user to the request"""
+        profile = factories.LtiProfileFactory()
+        request.user = profile.user
+
+    def _get_expiration(self, is_expired: bool = False) -> str:
+        """Return an expiration that may or may not be expired"""
+        now = timezone.now()
+        if is_expired:
+            return (now - timedelta(minutes=1)).isoformat()
+        return (now + timedelta(hours=1)).isoformat()
+
+    def _setup_good_request(self, rf):
+        """Return a properly setup request"""
+        request = rf.get(
+            self.endpoint,
+            course_key=factories.COURSE_KEY,
+            usage_key=factories.USAGE_KEY,
+        )
+        self._setup_user(request)
+        self._setup_session(request)
+        # NOTE: Required when b/c edx mako templates uses CRUM to get current request
+        CurrentRequestUserMiddleware(lambda x: None).process_request(request)
+        return request
+
+    @mock.patch("lti_1p3_provider.views.render_courseware")
+    def test_successfully_renders_content(self, mock_courseware, rf):
+        """When user has proper, unexpired session access, content is rendered"""
+        mock_courseware.return_value = HttpResponse(status=200)
+        request = self._setup_good_request(rf)
+        request.session[LTI_SESSION_KEY] = {self.endpoint: self._get_expiration()}
+        request.session.save()
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        assert resp.status_code == 200
+
+    @mock.patch("lti_1p3_provider.views.render_courseware")
+    def test_target_link_uri_content_dne_returns_404(self, mock_courseware, rf):
+        """Courseware at target_link_uri cannot be found returns a 404"""
+        mock_courseware.side_effect = Http404()
+        request = self._setup_good_request(rf)
+        request.session[LTI_SESSION_KEY] = {self.endpoint: self._get_expiration()}
+        request.session.save()
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Content Not Found"
+        assert resp.status_code == 404
+
+    def test_no_lti_access_in_session_returns_401(self, rf):
+        """If lti_access key not in session, returns a 401"""
+        request = self._setup_good_request(rf)
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid or Expired Session"
+        assert resp.status_code == 401
+
+    def test_missing_target_link_uri_in_lti_session_returns_401(self, rf):
+        """If target_link_uri is missing from lti_session, 401 returned"""
+        request = self._setup_good_request(rf)
+        # lti session key exists, but target_link_uri does not
+        request.session[LTI_SESSION_KEY] = {}
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid or Expired Session"
+        assert resp.status_code == 401
+
+    def test_expired_session_returns_401(self, rf):
+        """If target_link_uri exists and expiration is past due, 401 returned"""
+        request = self._setup_good_request(rf)
+        request.session[LTI_SESSION_KEY] = {
+            self.endpoint: self._get_expiration(is_expired=True)
+        }
+        request.session.save()
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Session Expired"
+        assert resp.status_code == 401
+
+    def test_user_isnt_logged_in_returns_401(self, rf):
+        """If user isn't logged in, a 401 is returned"""
+        request = self._setup_good_request(rf)
+        # Override user w/ an anonymous one (not logged in)
+        request.user = AnonymousUser()
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Unauthorized"
+        assert resp.status_code == 401
