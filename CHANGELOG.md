@@ -1,7 +1,9 @@
 # LTI 1.3 Provider
 
 ## Unreleased
-### Added
+
+## v2.0.0 - 2023-11-01
+### Changed
 - 💥 [#1](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/1): Use static `redirect_uri` (`/lti/1p3/launch/`); 302 redirect to `target_link_uri` after POST to `redirect_uri` (**Breaking Change**)
 - [#6](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/6): Show nicer error page if user hits browser Back button after launch
 
