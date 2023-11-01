@@ -28,7 +28,7 @@ These are both implemented in the included `tutor_plugins/enable_lti_1p3_provide
 ## Optional Settings
 - `LTI_AGGREGATE_SCORE_PASSBACK_DELAY`: Number of seconds to wait to perform grade passback on composite modules (subsections and units). This helps [batch requests](https://docs.celeryq.dev/en/stable/userguide/calling.html#eta-and-countdown). [default: 15 minutes](https://github.com/openedx/edx-platform/blob/6db1e1db26a0d307446109334f49841aa9aae599/lms/envs/common.py/#L4302-L4312)
     - **NOTE**: This setting is shared for the LTI 1.1 Provider so would affect both 1.1 and 1.3
-- `LTI_1P3_ACCESS_LENGTH_SEC`: Number of seconds from launch that the session should be valid for the given piece of content. By default we use the expiration of the `id_token`'s JWT.
+- `LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC`: Number of seconds from launch that the session should be valid for the given piece of content. By default we use the expiration of the `id_token`'s JWT.
 
 
 ## Setup an LTI Tool Key
