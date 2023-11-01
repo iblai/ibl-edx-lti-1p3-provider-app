@@ -109,7 +109,7 @@ Access to content is controlled by three components:
 - They must have the `target_link_uri` path in their session
 - They corresponding expiration in that session key must not be expired
 
-The time frame a user can access a given piece of content is controlled by the expiration of the `id_token`'s JWT by default. There is an optional override to allow access for a specific period of time, otherwise via [LTI_1P3_ACCESS_LENGTH_SEC](#optional-settings).
+The time frame a user can access a given piece of content is controlled by the expiration of the `id_token`'s JWT by default. There is an optional override to allow access for a specific period of time, otherwise via [LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC](#optional-settings).
 
 # Additional Notes
 The course and content must be published and available for a `Consumer` for be able to use it. Otherwise it will return a 404.
