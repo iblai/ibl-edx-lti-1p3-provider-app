@@ -337,42 +337,60 @@ class LtiToolLaunchView(LtiToolView):
         return exp
 
 
-@method_decorator(login_required, name="dispatch")
 class DisplayTargetResource(LtiToolView):
     """Displays content to user if they have appropriate permissions"""
 
+    default_error = "Please relaunch your content from its source to renew your session"
+
     def get(self, request, course_id: str, usage_id: str) -> HttpResponse:
+        if not request.user.is_authenticated:
+            log.warning("Anonymous user tried to access %s", self.request.path)
+            return self._render_unathorized()
+
         try:
             has_access = has_lti_session_access(request.session, request.path)
-
         except MissingSessionError as e:
-            log.error(
-                "LTI Session Error: '%s' for user: %s when trying to access path %s",
-                e,
-                self.request.user,
-                self.request.path,
-            )
-            # TODO: Return a proper error page
-            title = "Invalid or Expired Session"
-            error = "Please relaunch your content from its source to renew your session"
-            return render_edx_error(request, title, error, status=401)
+            log.warning("LTI Session Error: %s @ path: %s", e, self.request.path)
+            return self._render_invalid_or_expired_error(e)
 
         if not has_access:
-            title = "Session Expired"
-            error = "Please relaunch your content from its source to renew your session"
-            return render_edx_error(request, title, error, status=401)
+            log.info("LTI access expired at: %s", self.request.path)
+            return self._render_expired_session_error()
 
         _, usage_key = parse_course_and_usage_keys(course_id, usage_id)
-
         try:
             return render_courseware(request, usage_key)
+
         except Http404 as e:
-            title = "Content Not Found"
-            error = (
-                "Sorry, but this content cannot be found. Please contact your "
-                "technical support for additional assistance."
-            )
-            return render_edx_error(request, title, error, status=404)
+            log.warning("LTI Content DNE: %s. Is it published?", self.request.path)
+            return self._render_content_not_found_error()
+
+    def _render_unathorized(self):
+        """Return an authorized response"""
+        title = "Unauthorized"
+        error = (
+            "Please relaunch this LTI resource from its original source to " "access it"
+        )
+        return render_edx_error(self.request, title, error, status=401)
+
+    def _render_invalid_or_expired_error(self, exc: MissingSessionError):
+        """Return an Invalid or Expired Session response"""
+        title = "Invalid or Expired Session"
+        return render_edx_error(self.request, title, self.default_error, status=401)
+
+    def _render_expired_session_error(self):
+        """Render an Expired Session response"""
+        title = "Session Expired"
+        return render_edx_error(self.request, title, self.default_error, status=401)
+
+    def _render_content_not_found_error(self):
+        """Return a Content Not Found response"""
+        title = "Content Not Found"
+        error = (
+            "Sorry, but this content cannot be found. Please contact your "
+            "technical support for additional assistance."
+        )
+        return render_edx_error(self.request, title, error, status=404)
 
 
 class LtiToolJwksView(LtiToolView):
