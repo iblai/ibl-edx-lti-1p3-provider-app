@@ -3,7 +3,7 @@ Tests for LTI views.
 """
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest import mock
 from urllib import parse
 
@@ -21,7 +21,7 @@ from django.utils import timezone
 
 from lti_1p3_provider.models import LtiGradedResource, LtiProfile
 from lti_1p3_provider.session_access import LTI_SESSION_KEY
-from lti_1p3_provider.views import DisplayTargetResource
+from lti_1p3_provider.views import DisplayTargetResource, LtiToolLaunchView
 
 from . import factories, fakes
 from .base import URL_LIB_LTI_JWKS
@@ -443,6 +443,81 @@ class TestLtiToolLaunchView:
             "lti_errorlog": ["Invalid course_id or usage_id in target link uri"],
         }
 
+    def test_session_exp_set_to_jwt_exp(self, rf):
+        """Session expiration is set to JWT exp by default"""
+        target_link_uri = _get_target_link_uri()
+        target_link_path = parse.urlparse(target_link_uri).path
+        id_token = factories.IdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            target_link_uri=target_link_uri,
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
+        request = rf.post(self.launch_endpoint, data=payload)
+        SessionMiddleware().process_request(request)
+        request.session.save()
+
+        LtiToolLaunchView.as_view()(request)
+
+        expected = {
+            target_link_path: datetime.fromtimestamp(
+                id_token["exp"], tz=timezone.utc
+            ).isoformat()
+        }
+        assert request.session[LTI_SESSION_KEY] == expected
+
+    @override_settings(LTI_1P3_ACCESS_LENGTH_SEC=100)
+    def test_session_exp_set_to_settings_value(self, rf):
+        """Session expiration is set to the override value when present"""
+        target_link_uri = _get_target_link_uri()
+        target_link_path = parse.urlparse(target_link_uri).path
+        id_token = factories.IdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            target_link_uri=target_link_uri,
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
+        request = rf.post(self.launch_endpoint, data=payload)
+        SessionMiddleware().process_request(request)
+        request.session.save()
+        now = timezone.now()
+
+        # NOTE: Need to mock here b/c otherwise it gets overridden everywhere and
+        # you can't save the session. Maybe a better way to do this?
+        with mock.patch("lti_1p3_provider.views.timezone.now") as mock_now:
+            mock_now.return_value = now
+            LtiToolLaunchView.as_view()(request)
+
+        expected = {target_link_path: (now + timedelta(seconds=100)).isoformat()}
+        assert request.session[LTI_SESSION_KEY] == expected
+
+    def test_user_can_have_multiple_active_lti_access_sessions(self, rf):
+        """Multiple Sessions can be added to user's existing login"""
+        course2 = "course-v1:Org+Course2+Run"
+        target_link_uri_1 = _get_target_link_uri()
+        target_link_path_1 = parse.urlparse(target_link_uri_1).path
+        target_link_uri_2 = _get_target_link_uri(course_id=course2)
+        target_link_path_2 = parse.urlparse(target_link_uri_2).path
+        payload = self._get_payload(course2, factories.USAGE_KEY)
+        request = rf.post(self.launch_endpoint, data=payload)
+        SessionMiddleware().process_request(request)
+        link_1_exp = timezone.now()
+        request.session[LTI_SESSION_KEY] = {target_link_path_1: link_1_exp.isoformat()}
+        request.session.save()
+
+        LtiToolLaunchView.as_view()(request)
+
+        assert request.session[LTI_SESSION_KEY].keys() == {
+            target_link_path_1,
+            target_link_path_2,
+        }
+        assert (
+            request.session[LTI_SESSION_KEY][target_link_path_1]
+            == link_1_exp.isoformat()
+        )
+
 
 @pytest.mark.django_db
 class TestLtiToolJwksViewTest:
@@ -613,4 +688,5 @@ class TestDisplayTargetResourceView:
 
         assert resp.status_code == 302
         url_parts = parse.urlparse(resp.url)
+        assert url_parts.path == "/login"
         assert url_parts.path == "/login"
