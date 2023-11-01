@@ -323,7 +323,7 @@ class LtiToolLaunchView(LtiToolView):
 
     def _get_lti_session_expiration(self) -> datetime:
         """Return expiration for LTI Session for this path"""
-        override_exp_sec = getattr(settings, "LTI_1P3_ACCESS_LENGTH_SEC", None)
+        override_exp_sec = getattr(settings, "LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC", None)
         if override_exp_sec is not None:
             log.debug(
                 "Using LTI_1P3_ACCESS_LENGTH_SEC as lti access length: %s",
