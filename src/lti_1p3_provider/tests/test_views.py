@@ -467,7 +467,7 @@ class TestLtiToolLaunchView:
         }
         assert request.session[LTI_SESSION_KEY] == expected
 
-    @override_settings(LTI_1P3_ACCESS_LENGTH_SEC=100)
+    @override_settings(LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC=100)
     def test_session_exp_set_to_settings_value(self, rf):
         """Session expiration is set to the override value when present"""
         target_link_uri = _get_target_link_uri()
