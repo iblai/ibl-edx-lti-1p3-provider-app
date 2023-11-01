@@ -33,14 +33,27 @@ These are both implemented in the included `tutor_plugins/enable_lti_1p3_provide
 
 ## Setup an LTI Tool Key
 You technically only need to do this once. It's going to be the Private/Public key for one or multiple tools to use.
+
 **NOTE: Never share the private key under any circumstances**
 
+### Generating a New Public/Private keypair
+To generate a public/private key pair you can use the following commands:
+```shell
+# Private Key
+openssl genrsa -out private_key.pem 2048
+# Public Key
+openssl rsa -in private_key.pem -outform PEM -pubout -out public_key.pem
+```
+
+Once generated, you can copy the contents into their respective fields in the next steps.
+
+### Adding a new LTI Tool Key
 - Go to the django admin
 - Select `Lti 1.3 tool keys` under the `PYLTI 1.3 TOOL CONFIG` heading
 - Select `Add LTI 1.3 TOOL KEY`
 - Give it a name
-- Add a `Private Key` and it's correspondging `Public Key`
-    - These should be a PEM in the formats: `-----BEGIN RSA PRIVATE KEY-----` and `-----BEGIN PUBLIC KEY-----`
+- Add a `Private Key` and its correspondging `Public Key` (see previous section)
+    - These should be strings in the PEM format and start like: `-----BEGIN RSA PRIVATE KEY-----` and `-----BEGIN PUBLIC KEY-----`
 - Click `Save`
 
 
