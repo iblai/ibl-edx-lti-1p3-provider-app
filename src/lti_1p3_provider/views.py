@@ -321,20 +321,21 @@ class LtiToolLaunchView(LtiToolView):
         expiration = self._get_lti_session_expiration()
         set_lti_session_access(self.request.session, target_link_uri_path, expiration)
 
-    def _get_lti_session_expiration(self) -> datetime:
+    def _get_lti_session_expiration(self) -> datetime | None:
         """Return expiration for LTI Session for this path"""
         override_exp_sec = getattr(settings, "LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC", None)
-        if override_exp_sec is not None:
+        if override_exp_sec:
             log.debug(
-                "Using LTI_1P3_ACCESS_LENGTH_SEC as lti access length: %s",
+                "Using LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC as lti access length: %s",
                 override_exp_sec,
             )
             return timezone.now() + timedelta(seconds=override_exp_sec)
 
-        # Use the expiration from the JWT if we're not forcing one
-        exp = datetime.fromtimestamp(self.launch_data["exp"], tz=timezone.utc)
-        log.debug("Using JWT exp as lti access length (%s)", exp)
-        return exp
+        log.debug(
+            "LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC is None; "
+            "Access allowed as long as logged in"
+        )
+        return None
 
 
 class DisplayTargetResource(LtiToolView):
