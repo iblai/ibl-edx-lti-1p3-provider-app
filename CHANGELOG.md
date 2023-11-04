@@ -1,8 +1,10 @@
 # LTI 1.3 Provider
 
 ## Unreleased
+
+## v2.0.1 - 2023-11-04
 ### Changed
-- [#10](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/10): If `LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC` is `None`, allow access as long as logged in.
+- [#10](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/10): If `LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC` is `None` (default), allow access as long as logged in.
 
 ## v2.0.0 - 2023-11-01
 ### Changed
