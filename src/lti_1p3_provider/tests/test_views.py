@@ -588,11 +588,27 @@ class TestDisplayTargetResourceView:
         return request
 
     @mock.patch("lti_1p3_provider.views.render_courseware")
-    def test_successfully_renders_content(self, mock_courseware, rf):
-        """When user has proper, unexpired session access, content is rendered"""
+    def test_successfully_renders_content_with_exp_set(self, mock_courseware, rf):
+        """When user has unexpired session access, content is rendered"""
         mock_courseware.return_value = HttpResponse(status=200)
         request = self._setup_good_request(rf)
         request.session[LTI_SESSION_KEY] = {self.endpoint: self._get_expiration()}
+        request.session.save()
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        assert resp.status_code == 200
+
+    @mock.patch("lti_1p3_provider.views.render_courseware")
+    def test_successfully_renders_content_with_exp_as_none(self, mock_courseware, rf):
+        """When user's expiration is None, allows access"""
+        mock_courseware.return_value = HttpResponse(status=200)
+        request = self._setup_good_request(rf)
+        request.session[LTI_SESSION_KEY] = {self.endpoint: None}
         request.session.save()
 
         resp = DisplayTargetResource.as_view()(
