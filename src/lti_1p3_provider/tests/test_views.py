@@ -443,8 +443,8 @@ class TestLtiToolLaunchView:
             "lti_errorlog": ["Invalid course_id or usage_id in target link uri"],
         }
 
-    def test_session_exp_set_to_jwt_exp(self, rf):
-        """Session expiration is set to JWT exp by default"""
+    def test_session_exp_set_to_none(self, rf):
+        """Session expiration is set to None by default"""
         target_link_uri = _get_target_link_uri()
         target_link_path = parse.urlparse(target_link_uri).path
         id_token = factories.IdTokenFactory(
@@ -460,12 +460,7 @@ class TestLtiToolLaunchView:
 
         LtiToolLaunchView.as_view()(request)
 
-        expected = {
-            target_link_path: datetime.fromtimestamp(
-                id_token["exp"], tz=timezone.utc
-            ).isoformat()
-        }
-        assert request.session[LTI_SESSION_KEY] == expected
+        assert request.session[LTI_SESSION_KEY][target_link_path] is None
 
     @override_settings(LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC=100)
     def test_session_exp_set_to_settings_value(self, rf):
