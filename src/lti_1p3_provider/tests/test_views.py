@@ -443,8 +443,8 @@ class TestLtiToolLaunchView:
             "lti_errorlog": ["Invalid course_id or usage_id in target link uri"],
         }
 
-    def test_session_exp_set_to_jwt_exp(self, rf):
-        """Session expiration is set to JWT exp by default"""
+    def test_session_exp_set_to_none(self, rf):
+        """Session expiration is set to None by default"""
         target_link_uri = _get_target_link_uri()
         target_link_path = parse.urlparse(target_link_uri).path
         id_token = factories.IdTokenFactory(
@@ -460,12 +460,7 @@ class TestLtiToolLaunchView:
 
         LtiToolLaunchView.as_view()(request)
 
-        expected = {
-            target_link_path: datetime.fromtimestamp(
-                id_token["exp"], tz=timezone.utc
-            ).isoformat()
-        }
-        assert request.session[LTI_SESSION_KEY] == expected
+        assert request.session[LTI_SESSION_KEY][target_link_path] is None
 
     @override_settings(LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC=100)
     def test_session_exp_set_to_settings_value(self, rf):
@@ -593,11 +588,27 @@ class TestDisplayTargetResourceView:
         return request
 
     @mock.patch("lti_1p3_provider.views.render_courseware")
-    def test_successfully_renders_content(self, mock_courseware, rf):
-        """When user has proper, unexpired session access, content is rendered"""
+    def test_successfully_renders_content_with_exp_set(self, mock_courseware, rf):
+        """When user has unexpired session access, content is rendered"""
         mock_courseware.return_value = HttpResponse(status=200)
         request = self._setup_good_request(rf)
         request.session[LTI_SESSION_KEY] = {self.endpoint: self._get_expiration()}
+        request.session.save()
+
+        resp = DisplayTargetResource.as_view()(
+            request,
+            course_id=str(factories.COURSE_KEY),
+            usage_id=str(factories.USAGE_KEY),
+        )
+
+        assert resp.status_code == 200
+
+    @mock.patch("lti_1p3_provider.views.render_courseware")
+    def test_successfully_renders_content_with_exp_as_none(self, mock_courseware, rf):
+        """When user's expiration is None, allows access"""
+        mock_courseware.return_value = HttpResponse(status=200)
+        request = self._setup_good_request(rf)
+        request.session[LTI_SESSION_KEY] = {self.endpoint: None}
         request.session.save()
 
         resp = DisplayTargetResource.as_view()(

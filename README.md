@@ -28,7 +28,7 @@ These are both implemented in the included `tutor_plugins/enable_lti_1p3_provide
 ## Optional Settings
 - `LTI_AGGREGATE_SCORE_PASSBACK_DELAY`: Number of seconds to wait to perform grade passback on composite modules (subsections and units). This helps [batch requests](https://docs.celeryq.dev/en/stable/userguide/calling.html#eta-and-countdown). [default: 15 minutes](https://github.com/openedx/edx-platform/blob/6db1e1db26a0d307446109334f49841aa9aae599/lms/envs/common.py/#L4302-L4312)
     - **NOTE**: This setting is shared for the LTI 1.1 Provider so would affect both 1.1 and 1.3
-- `LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC`: Number of seconds from launch that the session should be valid for the given piece of content. By default we use the expiration of the `id_token`'s JWT.
+- `LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC`: Number of seconds from launch that the session should be valid for the given piece of content. Default is `None` which allows access as long as the user has a valid edx session.
 
 
 ## Setup an LTI Tool Key
@@ -107,9 +107,9 @@ To use the LTI Assignment and Grades service (Grade passback), the `Platform` wi
 Access to content is controlled by three components:
 - The user must be logged in
 - They must have the `target_link_uri` path in their session
-- They corresponding expiration in that session key must not be expired
+- They corresponding expiration is `None` or not expired if set
 
-The time frame a user can access a given piece of content is controlled by the expiration of the `id_token`'s JWT by default. There is an optional override to allow access for a specific period of time, otherwise via [LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC](#optional-settings).
+The length of access to the content is controlled by the [LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC](#optional-settings) variable. The default is `None` (unset), which allows access as long as the user is logged in. If set to an integer, access is allowed for the specified number of seconds since launch..
 
 # Additional Notes
 The course and content must be published and available for a `Consumer` for be able to use it. Otherwise it will return a 404.
