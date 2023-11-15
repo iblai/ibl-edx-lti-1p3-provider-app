@@ -3,6 +3,7 @@ Tests for LTI views.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 from unittest import mock
 from urllib import parse
@@ -18,6 +19,7 @@ from django.http import Http404, HttpResponse
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
+from pylti1p3.registration import Registration
 
 from lti_1p3_provider.models import LtiGradedResource, LtiProfile
 from lti_1p3_provider.session_access import LTI_SESSION_KEY
@@ -311,6 +313,22 @@ class TestLtiToolLaunchView:
         assert soup.find("h1").text == "Invalid LTI Tool Launch"
         assert resp.status_code == 400
 
+    def test_invalid_platform_pub_key_format_returns_500(self, client):
+        """If pub key has an invalid format, a 500 is returned"""
+        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+        jwt = Registration.get_jwk(factories.PLATFORM_PUBLIC_KEY)
+        # Make the key_set malformed
+        jwt['n'] = jwt['n'][5:]
+        self.tool.key_set = json.dumps({'keys': [jwt]})
+        self.tool.save()
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
+        assert soup.find("p").text.startswith("Invalid Platform Public Key")
+        assert resp.status_code == 500
+
     @mock.patch("lti_1p3_provider.views.authenticate")
     def test_when_authenticate_fails_returns_400(self, mock_auth, client):
         """If authenticate fails, a 400 is returns"""
@@ -414,10 +432,10 @@ class TestLtiToolLaunchView:
         assert soup.find("h1").text == "This page cannot be accessed directly"
         assert resp.status_code == 405
 
-    def test_error_returned_via_lti_return_url_with_error_log(self, client):
-        """Error returned via return_url w/ errorlog (when specified)"""
+    def test_error_returned_via_lti_return_url_with_error_msg(self, client):
+        """Error returned via return_url w/ errormsg (when specified)"""
         base = reverse("lti_1p3_provider:lti-launch")
-        # Invalid usage key so it will return an error w/ errorlog
+        # Invalid usage key so it will return an error w/ errormsg
         target_link_uri = (
             f"{base}{str(factories.COURSE_KEY)}/block-v1:org1+course1+run1"
         )
@@ -437,10 +455,11 @@ class TestLtiToolLaunchView:
         assert query_parts == {
             "item": ["123"],
             "lti_errormsg": [
-                "Invalid LTI Tool Launch: Please contact your technical support for "
-                "additional assistance"
+                (
+                    "Invalid LTI Tool Launch: Invalid course_id or usage_id in target "
+                    f"link uri: {target_link_uri}"
+                )
             ],
-            "lti_errorlog": ["Invalid course_id or usage_id in target link uri"],
         }
 
     def test_session_exp_set_to_none(self, rf):
