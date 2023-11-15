@@ -231,12 +231,12 @@ class LtiToolLaunchView(LtiToolView):
 
         except InvalidKeyError as e:
             log.error("Invalid Launch Course or UsageKey - %s", e)
-            errorlog = (
+            errormsg = (
                 "Invalid course_id or usage_id in target link uri: "
-                f"{self._get_target_link_uri()}",
+                f"{self._get_target_link_uri()}"
             )
             return get_lti_error_response(
-                request, self.launch_data, errorlog=errorlog, status=400
+                request, self.launch_data, errormsg=errormsg, status=400
             )
 
         except LtiException as exc:
@@ -256,7 +256,7 @@ class LtiToolLaunchView(LtiToolView):
                 "for additional assistance."
             )
             return get_lti_error_response(
-                request, self.launch_data, errormsg=errormsg, status=400
+                request, self.launch_data, errormsg=errormsg, status=500
             )
 
         log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
