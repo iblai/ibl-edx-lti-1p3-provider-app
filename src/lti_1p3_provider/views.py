@@ -32,6 +32,7 @@ from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import View
+from jwcrypto.common import JWException
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from openedx.core.djangoapps.safe_sessions.middleware import (
@@ -243,6 +244,16 @@ class LtiToolLaunchView(LtiToolView):
             errormsg = (
                 f"{exc}. Please contact your technical support for additional "
                 "assistance."
+            )
+            return get_lti_error_response(
+                request, self.launch_data, errormsg=errormsg, status=400
+            )
+
+        except JWException as exc:
+            log.error("LTI 1.3: JwkError: %s", exc)
+            errormsg = (
+                "Invalid Platform Public Key. Please contact your technical support "
+                "for additional assistance."
             )
             return get_lti_error_response(
                 request, self.launch_data, errormsg=errormsg, status=400
