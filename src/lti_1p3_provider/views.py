@@ -45,6 +45,7 @@ from pylti1p3.contrib.django import (
 )
 from pylti1p3.exception import LtiException, OIDCException
 
+from .error_formatter import reformat_error
 from .error_response import get_lti_error_response, render_edx_error
 from .exceptions import MissingSessionError
 from .models import LtiGradedResource, LtiProfile
@@ -239,8 +240,9 @@ class LtiToolLaunchView(LtiToolView):
 
         except LtiException as exc:
             log.error("LTI 1.3: Tool launch failed: %s", exc)
+            errormsg = reformat_error(str(exc))
             errormsg = (
-                f"{exc}. Please contact your technical support for additional "
+                f"{errormsg}. Please contact your technical support for additional "
                 "assistance."
             )
             return get_lti_error_response(
