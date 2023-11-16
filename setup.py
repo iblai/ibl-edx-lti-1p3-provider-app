@@ -9,7 +9,7 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 setup(
     name="ibl-lti-1p3-provider",
-    version="2.0.1",
+    version="2.0.2",
     packages=find_packages("src"),
     include_package_data=True,
     package_dir={"": "src"},
