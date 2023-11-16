@@ -16,15 +16,13 @@ from urllib import parse
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login
-from django.contrib.auth.decorators import login_required
 from django.http import (
     Http404,
     HttpResponse,
     HttpResponseBadRequest,
-    HttpResponseForbidden,
     JsonResponse,
 )
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 from django.urls import Resolver404, resolve, reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -32,6 +30,7 @@ from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import View
+from jwcrypto.common import JWException
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from openedx.core.djangoapps.safe_sessions.middleware import (
@@ -46,6 +45,7 @@ from pylti1p3.contrib.django import (
 )
 from pylti1p3.exception import LtiException, OIDCException
 
+from .error_formatter import reformat_error
 from .error_response import get_lti_error_response, render_edx_error
 from .exceptions import MissingSessionError
 from .models import LtiGradedResource, LtiProfile
@@ -113,8 +113,6 @@ class LtiToolLoginView(LtiToolView):
                 self.request.build_absolute_uri(reverse("lti_1p3_provider:lti-launch"))
             )
         except (OIDCException, LtiException) as exc:
-            # Relying on downstream error messages, attempt to sanitize it up
-            # for customer facing errors.
             log.error(
                 "LTI OIDC login failed.\nError: %s\nMethod: %s\nParams: %s",
                 exc,
@@ -124,7 +122,10 @@ class LtiToolLoginView(LtiToolView):
             return render_edx_error(
                 request,
                 title="Invalid LTI Login Request",
-                error="Please contact your technical support for additional assistance",
+                error=(
+                    f"{exc}. Please contact your technical support for additional "
+                    "assistance."
+                ),
                 status=400,
             )
 
@@ -218,9 +219,6 @@ class LtiToolLaunchView(LtiToolView):
         """
         Process LTI platform launch requests.
         """
-
-        # Parse LTI launch message.
-
         # TODO: Add an optional gate for permissions/purchasing checks of some kind
 
         try:
@@ -232,17 +230,34 @@ class LtiToolLaunchView(LtiToolView):
 
         except InvalidKeyError as e:
             log.error("Invalid Launch Course or UsageKey - %s", e)
-            errorlog = "Invalid course_id or usage_id in target link uri"
+            errormsg = (
+                "Invalid course_id or usage_id in target link uri: "
+                f"{self._get_target_link_uri()}"
+            )
             return get_lti_error_response(
-                request, self.launch_data, errorlog=errorlog, status=400
+                request, self.launch_data, errormsg=errormsg, status=400
             )
 
         except LtiException as exc:
             log.error("LTI 1.3: Tool launch failed: %s", exc)
-            # TODO: We could possible send the exception string in the errorlog
-            # But would need to ensure it would never be possible it contains sensitive
-            # information
-            return get_lti_error_response(request, self.launch_data, status=400)
+            errormsg = reformat_error(str(exc))
+            errormsg = (
+                f"{errormsg}. Please contact your technical support for additional "
+                "assistance."
+            )
+            return get_lti_error_response(
+                request, self.launch_data, errormsg=errormsg, status=400
+            )
+
+        except JWException as exc:
+            log.error("LTI 1.3: JwkError: %s", exc)
+            errormsg = (
+                "Invalid Platform Public Key. Please contact your technical support "
+                "for additional assistance."
+            )
+            return get_lti_error_response(
+                request, self.launch_data, errormsg=errormsg, status=500
+            )
 
         log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
 
@@ -370,7 +385,7 @@ class DisplayTargetResource(LtiToolView):
         """Return an authorized response"""
         title = "Unauthorized"
         error = (
-            "Please relaunch this LTI resource from its original source to " "access it"
+            "Please relaunch this LTI resource from its original source to access it"
         )
         return render_edx_error(self.request, title, error, status=401)
 
