@@ -275,7 +275,11 @@ class LtiToolLaunchView(LtiToolView):
                 "contact your technical support for additional assistance."
             )
             return get_lti_error_response(
-                request, self.launch_data, errormsg=errormsg, status=403
+                request,
+                self.launch_data,
+                title="LTI Launch Gate Error",
+                errormsg=errormsg,
+                status=403,
             )
 
         log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
