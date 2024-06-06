@@ -56,7 +56,9 @@ from django.contrib.auth import get_user_model
 from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 from opaque_keys.edx.django.models import CourseKeyField, UsageKeyField
+from opaque_keys.edx.keys import UsageKey
 from pylti1p3.contrib.django import DjangoDbToolConf, DjangoMessageLaunch
+from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool
 from pylti1p3.grade import Grade
 
 EDX_LTI_EMAIL_DOMAIN = "edx-lti-1p3.com"
@@ -342,3 +344,31 @@ def generate_random_edx_username():
     for _index in range(30):
         username = username + random.SystemRandom().choice(allowable_chars)
     return username
+
+
+class LaunchGate(models.Model):
+    """Stores information about which xblocks a tool can access"""
+
+    tool = models.ForeignKey(
+        LtiTool, on_delete=models.CASCADE, help_text="The tool to gate"
+    )
+    allowed_keys = models.JSONField(
+        default=list, help_text="Allows tool to access these specific UsageKeys"
+    )
+    allowed_orgs = models.JSONField(
+        defeault=list, help_text="Allows tools to access any content in these orgs"
+    )
+
+    def can_access_key(self, usage_key: UsageKey) -> bool:
+        """Return True if tool can access usage_key
+
+        This is evaluated as an OR of allowed_keys and allowed_orgs
+        """
+        allowed_keys, allowed_orgs = False, False
+        if self.allowed_keys:
+            allowed_keys = str(usage_key) in self.allowed_keys
+
+        if self.allowed_orgs:
+            allowed_orgs = usage_key.course_key.org in self.allowed_orgs
+
+        return allowed_keys or allowed_orgs
