@@ -349,7 +349,7 @@ def generate_random_edx_username():
 class LaunchGate(models.Model):
     """Stores information about which xblocks a tool can access"""
 
-    tool = models.ForeignKey(
+    tool = models.OneToOneField(
         LtiTool, on_delete=models.CASCADE, help_text="The tool to gate"
     )
     allowed_keys = models.JSONField(
