@@ -10,7 +10,7 @@ from opaque_keys.edx.locator import CourseLocator
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
 from pylti1p3.registration import Registration
 
-from lti_1p3_provider.models import LtiGradedResource, LtiProfile
+from lti_1p3_provider.models import LaunchGate, LtiGradedResource, LtiProfile
 
 COURSE_KEY = CourseLocator(org="Org1", course="Course1", run="Run1")
 USAGE_KEY = COURSE_KEY.make_usage_key("vertical", "some-html-id")
@@ -265,3 +265,10 @@ class ScoreChangedSubmissionFactory(factory.DictFactory):
     modified = factory.LazyAttribute(lambda o: timezone.now())
     weighted_possible = 2
     weighted_earned = 1
+
+
+class LaunchGateFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = LaunchGate
+
+    tool = factory.SubFactory(LtiToolFactory)

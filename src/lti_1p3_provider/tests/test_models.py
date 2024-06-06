@@ -2,7 +2,6 @@
 Unit tests for Content Libraries models.
 """
 
-
 from unittest import mock
 
 import pytest
@@ -10,7 +9,7 @@ import requests_mock
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
-from opaque_keys.edx.keys import CourseKey
+from opaque_keys.edx.keys import CourseKey, UsageKey
 
 from lti_1p3_provider.models import LtiGradedResource, LtiProfile
 
@@ -222,3 +221,56 @@ class TestLtiGradedResource:
             "userId": resource.profile.subject_id,
         }
         assert last_request.json() == expected_payload
+
+
+class TestLaunchGate:
+    def test_can_access_key_empty_sets_returns_false(self):
+        """If neither allowed_keys nor allowed_orgs is set, returns False"""
+        key = UsageKey.from_string("block-v1:org+course+run+type@some+block@html_id")
+        gate = factories.LaunchGateFactory()
+
+        assert not gate.can_access_key(key)
+
+    def test_can_access_key_not_in_allowed_keys_or_allowed_orgs_returns_false(self):
+        """If target key not in allowed_keys or allowed_orgs, returns False"""
+        allowed_keys = [
+            UsageKey.from_string("block-v1:no+course+run+type@some+block@html_id1"),
+            UsageKey.from_string("block-v1:no+course+run+type@some+block@html_id2"),
+        ]
+        allowed_keys = [str(key) for key in allowed_keys]
+        allowed_orgs = ["org1", "org2"]
+        target_key = UsageKey.from_string(
+            "block-v1:bad_org+course+run+type@some+block@html_id"
+        )
+        # target org not org1/org2, target key not in allowed_keys
+        gate = factories.LaunchGateFactory(
+            allowed_keys=allowed_keys, allowed_orgs=allowed_orgs
+        )
+
+        assert not gate.can_access_key(target_key)
+
+    def test_can_access_key_allowed_keys_match_returns_true(self):
+        """If target key in allowed_keys, returns True"""
+        allowed_keys = [
+            UsageKey.from_string("block-v1:org+course+run+type@some+block@html_id1"),
+            UsageKey.from_string("block-v1:org+course+run+type@some+block@html_id2"),
+        ]
+        key = allowed_keys[1]
+        allowed_keys = [str(key) for key in allowed_keys]
+        gate = factories.LaunchGateFactory(allowed_keys=allowed_keys)
+
+        assert gate.can_access_key(key)
+
+    @pytest.mark.parametrize(
+        "key",
+        (
+            UsageKey.from_string("block-v1:org1+course+run+type@some+block@html_id"),
+            UsageKey.from_string("block-v1:org1+course+run+type@verical+block@html_id"),
+            UsageKey.from_string("block-v1:org2+other+run+type@some+block@html_id"),
+        ),
+    )
+    def test_can_access_key_allowed_orgs_match_returns_true(self, key):
+        """If target key in allowed_orgs, returns True"""
+        gate = factories.LaunchGateFactory(allowed_orgs=["org1", "org2"])
+
+        assert gate.can_access_key(key)
