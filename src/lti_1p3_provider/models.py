@@ -350,13 +350,16 @@ class LaunchGate(models.Model):
     """Stores information about which xblocks a tool can access"""
 
     tool = models.OneToOneField(
-        LtiTool, on_delete=models.CASCADE, help_text="The tool to gate"
+        LtiTool,
+        on_delete=models.CASCADE,
+        help_text="The tool to gate",
+        related_name="launch_gate",
     )
     allowed_keys = models.JSONField(
         default=list, help_text="Allows tool to access these specific UsageKeys"
     )
     allowed_orgs = models.JSONField(
-        defeault=list, help_text="Allows tools to access any content in these orgs"
+        default=list, help_text="Allows tools to access any content in these orgs"
     )
 
     def can_access_key(self, usage_key: UsageKey) -> bool:
