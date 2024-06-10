@@ -223,6 +223,7 @@ class TestLtiGradedResource:
         assert last_request.json() == expected_payload
 
 
+@pytest.mark.django_db
 class TestLaunchGate:
     def test_can_access_key_empty_sets_returns_false(self):
         """If neither allowed_keys nor allowed_orgs is set, returns False"""
