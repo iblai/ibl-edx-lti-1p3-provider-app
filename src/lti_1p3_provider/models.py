@@ -356,10 +356,14 @@ class LaunchGate(models.Model):
         related_name="launch_gate",
     )
     allowed_keys = models.JSONField(
-        default=list, help_text="Allows tool to access these specific UsageKeys"
+        default=list,
+        help_text="Allows tool to access these specific UsageKeys",
+        blank=True,
     )
     allowed_orgs = models.JSONField(
-        default=list, help_text="Allows tools to access any content in these orgs"
+        default=list,
+        help_text="Allows tools to access any content in these orgs",
+        blank=True,
     )
 
     def can_access_key(self, usage_key: UsageKey) -> bool:
