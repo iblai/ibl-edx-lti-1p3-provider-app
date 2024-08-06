@@ -48,7 +48,7 @@ from pylti1p3.exception import LtiException, OIDCException
 from .error_formatter import reformat_error
 from .error_response import get_lti_error_response, render_edx_error
 from .exceptions import MissingSessionError
-from .models import LtiGradedResource, LtiProfile
+from .models import LaunchGate, LtiGradedResource, LtiProfile
 from .session_access import has_lti_session_access, set_lti_session_access
 
 log = logging.getLogger(__name__)
@@ -219,14 +219,18 @@ class LtiToolLaunchView(LtiToolView):
         """
         Process LTI platform launch requests.
         """
-        # TODO: Add an optional gate for permissions/purchasing checks of some kind
 
         try:
             self.launch_message = self.get_launch_message()
             course_id, usage_id = self._get_course_and_usage_id()
             course_key, usage_key = parse_course_and_usage_keys(course_id, usage_id)
-            # TODO: Add client
-            log.info("LTI 1.3: Launch course=%s, block: id=%s", course_key, usage_key)
+            log.info(
+                "LTI 1.3: issuer=%s, client_id=%s, Launch course=%s, block: id=%s",
+                self.launch_message.get_iss(),
+                self.launch_message.get_client_id(),
+                course_key,
+                usage_key,
+            )
 
         except InvalidKeyError as e:
             log.error("Invalid Launch Course or UsageKey - %s", e)
@@ -259,6 +263,25 @@ class LtiToolLaunchView(LtiToolView):
                 request, self.launch_data, errormsg=errormsg, status=500
             )
 
+        if not self._check_launch_gate(self.launch_message, usage_key):
+            log.warning(
+                "Tool (iss=%s, client_id=%s) cannot launch usage key: %s",
+                self.launch_message.get_iss(),
+                self.launch_message.get_client_id(),
+                usage_key,
+            )
+            errormsg = (
+                "You do not have permission to access this content. Please "
+                "contact your technical support for additional assistance."
+            )
+            return get_lti_error_response(
+                request,
+                self.launch_data,
+                title="LTI Launch Gate Error",
+                errormsg=errormsg,
+                status=403,
+            )
+
         log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
 
         edx_user = self._authenticate_and_login()
@@ -282,7 +305,7 @@ class LtiToolLaunchView(LtiToolView):
 
         return match.kwargs["course_id"], match.kwargs["usage_id"]
 
-    def _get_target_link_uri(self) -> str:
+    def _get_target_link_uri(self) -> str | None:
         """Return target link URI from payload"""
         return self.launch_data.get(
             "https://purl.imsglobal.org/spec/lti/claim/target_link_uri"
@@ -351,6 +374,23 @@ class LtiToolLaunchView(LtiToolView):
             "Access allowed as long as logged in"
         )
         return None
+
+    def _check_launch_gate(
+        self, message: DjangoMessageLaunch, target_usage_key: UsageKey
+    ) -> bool:
+        """Return True if launching tool can access target_usage_key"""
+        tool = self.lti_tool_config.get_lti_tool(
+            iss=message.get_iss(),
+            client_id=message.get_client_id(),
+        )
+        try:
+            return tool.launch_gate.can_access_key(target_usage_key)
+        except LaunchGate.DoesNotExist:
+            log.info(
+                "Tool (iss=%s, client_id=%s) has no launch gate; proceeding", tool.id
+            )
+
+        return True
 
 
 class DisplayTargetResource(LtiToolView):

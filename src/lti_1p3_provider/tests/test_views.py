@@ -188,7 +188,8 @@ class TestLtiToolLaunchView:
 
         assert resp.status_code == 404
 
-    def test_successful_launch(self, client):
+    def test_successful_launch_no_gate(self, client):
+        """Test successsful launch with no gate in place"""
         payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
 
         resp = client.post(self.launch_endpoint, payload)
@@ -202,6 +203,36 @@ class TestLtiToolLaunchView:
             },
         )
         assert resp.url == f"http://localhost{redirect_uri}"
+
+    def test_successful_launch_with_gate(self, client):
+        """Test successful launch where target_link_uri is allowed by gate"""
+        factories.LaunchGateFactory(
+            tool=self.tool, allowed_orgs=[factories.USAGE_KEY.course_key.org]
+        )
+        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        assert resp.status_code == 302
+        redirect_uri = reverse(
+            "lti_1p3_provider:lti-display",
+            kwargs={
+                "course_id": str(factories.COURSE_KEY),
+                "usage_id": str(factories.USAGE_KEY),
+            },
+        )
+        assert resp.url == f"http://localhost{redirect_uri}"
+
+    def test_gated_content_returns_403(self, client):
+        """If tool cannot access content due to a gate, 403 is returned"""
+        factories.LaunchGateFactory(tool=self.tool)
+        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "LTI Launch Gate Error"
+        assert resp.status_code == 403
 
     def test_missing_course_id_in_target_link_uri_returns_400(self, client):
         """If the course_id missing in target_link_uri, 400 is returned"""
@@ -318,8 +349,8 @@ class TestLtiToolLaunchView:
         payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
         jwt = Registration.get_jwk(factories.PLATFORM_PUBLIC_KEY)
         # Make the key_set malformed
-        jwt['n'] = jwt['n'][5:]
-        self.tool.key_set = json.dumps({'keys': [jwt]})
+        jwt["n"] = jwt["n"][5:]
+        self.tool.key_set = json.dumps({"keys": [jwt]})
         self.tool.save()
 
         resp = client.post(self.launch_endpoint, payload)
