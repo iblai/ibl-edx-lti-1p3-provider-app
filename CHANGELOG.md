@@ -1,6 +1,8 @@
 # LTI 1.3 Provider
 
 ## Unreleased
+
+## 2.1.0
 ### Added
 - [#16](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/16): Adds a `LaunchGate` model where we can define whether a tool can launch a specific `UsageKey`
     - If no `LaunchGate` is attached to the tool, there are no restrictions
