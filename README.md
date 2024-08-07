@@ -1,16 +1,15 @@
 # ibl-edx-lti-1p3-provider
 LTI 1.3 Provider Implementation for general edx usage
 
-**NOTE**
-_By default EdX has no gates for which clients can access which courses. A client can access any `UsageKey` within a `Course` simply by knowing what they are and specifing them in the launch url._
+Advantage Services Implemented:
+- Assignment and Gradaes Service (AGS) for grade passback
 
-We can implement a gate at a later time.
 
 # Installation
 Add optional version tag as necessary.
 
 ```shell
-pip install git+https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app.git
+pip install git+https://github.com/iblai/ibl-edx-lti-1p3-provider-app.git
 ```
 
 # Setup
@@ -94,7 +93,7 @@ Provide the following information to the `Platform` for their side of the integr
 - Redirect Uri: `https://<lms_domain.com>/lti/1p3/launch/`
     - This is where the consumer will post its `id_token` to
 - Tool Launch Endpoint: `https://<lms_domain.com>/lti/1p3/launch/<course_key>/<usage_key>`
-    - This is also known as the `target_link_uri` - the final place the user will be redirected to
+    - This is also known as the `target_link_uri` - the final place the user will be redirected to (the content to show the user)
 - Login Initiations Endpoint: `https://<lms_domain.com>/lti/1p3/login/`
 - JWKS Endpoint (Tool Keyset): `https://<lms_domain.com>/lti/1p3/pub/jwks/`
 - Deep Linking Endpoint: _Not yet implemented_
@@ -102,6 +101,13 @@ Provide the following information to the `Platform` for their side of the integr
 To use the LTI Assignment and Grades service (Grade passback), the `Platform` will need to allow the following scopes for the Tool OAuth2 client:
 - `https://purl.imsglobal.org/spec/lti-ags/scope/lineitem`
 - `https://purl.imsglobal.org/spec/lti-ags/scope/score`
+
+## Launch Gating
+By default, a consumer could link to any content on the platform by changing the `target_link_uri`. To restrict this, a `LaunchGate` can be added to the consumer. This will restrict the consumer to launching content that is either:
+- In the `allowed_keys` list
+- In the `allowed_orgs` list
+
+This can be added in the Django Admin under `lti_1p3_providers` -> `Launch gates`.
 
 ## Access and Session Length
 Access to content is controlled by three components:
@@ -112,13 +118,8 @@ Access to content is controlled by three components:
 The length of access to the content is controlled by the [LTI_1P3_PROVIDER_ACCESS_LENGTH_SEC](#optional-settings) variable. The default is `None` (unset), which allows access as long as the user is logged in. If set to an integer, access is allowed for the specified number of seconds since launch..
 
 # Additional Notes
-The course and content must be published and available for a `Consumer` for be able to use it. Otherwise it will return a 404.
+The course and content must be published and available for a `Consumer` to be able to use it. Otherwise it will return a 404.
 
 ## Running Tests
-- Install the [ibl-edx-test-env-plugin](https://github.com/ibleducation/ibl-edx-test-env-plugin) and enable it
-- Follow its setup instructions
-- Run: `tutor test run lms bash`
-- `pip install -e ../path/to/this/repo`
-- We need to copy static files into the `test_root` dir:
-  - `cp -r ../staticfiles ./test_root/`
-- `pytest ../<path_to_repo>/src/lti_1p3_provider/tests --disable-warnings --no-migrations`
+- In an openedx dev environment, run `pytest ../<path_to_repo>/src/lti_1p3_provider/tests --disable-warnings --no-migrations`
+
