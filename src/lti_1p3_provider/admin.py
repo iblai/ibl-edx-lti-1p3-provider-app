@@ -28,5 +28,5 @@ class LtiProfileAdmin(admin.ModelAdmin):
 
 
 @admin.register(models.LtiGradedResource)
-class LtiPGradedResourceAdmin(admin.ModelAdmin):
+class LtiGradedResourceAdmin(admin.ModelAdmin):
     pass
