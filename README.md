@@ -1,6 +1,10 @@
 # ibl-edx-lti-1p3-provider
 LTI 1.3 Provider Implementation for general edx usage
 
+Advantage Services Implemented:
+- Assignment and Gradaes Service (AGS) for grade passback
+
+
 # Installation
 Add optional version tag as necessary.
 
