@@ -30,3 +30,14 @@ class LtiProfileAdmin(admin.ModelAdmin):
 @admin.register(models.LtiGradedResource)
 class LtiGradedResourceAdmin(admin.ModelAdmin):
     pass
+
+
+@admin.register(models.LtiToolOrg)
+class LtiTooLOrgAdmin(admin.ModelAdmin):
+    list_display = ("tool_name", "org_name")
+
+    def tool_name(self, obj) -> str:
+        return f"{obj.tool.title} ({obj.tool.client_id})"
+
+    def org_name(self, obj) -> str:
+        return obj.org.short_name
