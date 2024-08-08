@@ -1,11 +1,4 @@
-"""
-=======================
-Content Libraries Views
-=======================
-
-This module contains the REST APIs for blockstore-based content libraries, and
-LTI 1.3 views.
-"""
+"""LTI 1.3 Provider Views"""
 
 from __future__ import annotations
 
@@ -26,7 +19,6 @@ from django.shortcuts import redirect
 from django.urls import Resolver404, resolve, reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
-from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import View
@@ -36,6 +28,7 @@ from opaque_keys.edx.keys import CourseKey, UsageKey
 from openedx.core.djangoapps.safe_sessions.middleware import (
     mark_user_change_as_expected,
 )
+from openedx.core.djangoapps.site_configuration.models import SiteConfiguration
 from openedx.core.lib.url_utils import unquote_slashes
 from pylti1p3.contrib.django import (
     DjangoCacheDataStorage,
@@ -48,7 +41,8 @@ from pylti1p3.exception import LtiException, OIDCException
 from .error_formatter import reformat_error
 from .error_response import get_lti_error_response, render_edx_error
 from .exceptions import MissingSessionError
-from .models import LaunchGate, LtiGradedResource, LtiProfile
+from .models import LaunchGate, LtiGradedResource, LtiProfile, LtiToolOrg
+from .services import create_user_platform_link
 from .session_access import has_lti_session_access, set_lti_session_access
 
 log = logging.getLogger(__name__)
@@ -154,7 +148,7 @@ class LtiToolLaunchView(LtiToolView):
             return self.launch_message.get_launch_data()
         return {}
 
-    def _authenticate_and_login(self):
+    def _authenticate_and_login(self) -> tuple[User, bool]:
         """
         Authenticate and authorize the user for this LTI message launch.
 
@@ -162,7 +156,7 @@ class LtiToolLaunchView(LtiToolView):
         authenticate the LTI user associated with it.
         """
 
-        LtiProfile.objects.get_or_create_from_claims(
+        _, created = LtiProfile.objects.get_or_create_from_claims(
             iss=self.launch_data["iss"],
             aud=self.launch_data["aud"],
             sub=self.launch_data["sub"],
@@ -185,7 +179,7 @@ class LtiToolLaunchView(LtiToolView):
                 self.launch_data["aud"],
             )
 
-        return edx_user
+        return edx_user, created
 
     def _bad_request_response(self):
         """
@@ -284,13 +278,50 @@ class LtiToolLaunchView(LtiToolView):
 
         log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
 
-        edx_user = self._authenticate_and_login()
+        edx_user, created = self._authenticate_and_login()
+
+        # FIXME: Refactor all of this into something more manageable
+        if created:
+            # FIXME: Refactor so we're not doing this multiple times (check launch gate)
+            lti_tool = self.lti_tool_config.get_lti_tool(
+                iss=self.launch_message.get_iss(),
+                client_id=self.launch_message.get_client_id(),
+            )
+            try:
+                org = lti_tool.tool_org.org
+                platform_key = SiteConfiguration.get_value_for_org(
+                    org.short_name, "platform_key"
+                )
+                if not platform_key:
+                    # FIXME: Refine this error message
+                    raise LtiException(
+                        "No platform_key found for org: %s", org.short_name
+                    )
+                # FIXME: Handle Lti1P3Exception here?
+                # I think will need to delete the user if we don't successfully create
+                # it in DM
+                create_user_platform_link(edx_user.id, platform_key)
+            except LtiToolOrg.DoesNotExist:
+                # NOTE: If ToolOrg DNE we don't need to associate it with a user
+                # Proceed as normal
+                pass
+
+            # Create UserPlatormLink for us if there's an Org associated w/ tool
+            #
+
         if not edx_user:
             return self._bad_request_response()
 
         self.handle_ags(course_key, usage_key)
         self._set_session_access()
         return redirect(self._get_target_link_uri())
+
+    def _emit_user_created_signal(
+        self, tool: LtiTool, edx_user: User, course_key: CourseKey
+    ) -> None:
+        """Runs registered user created hooks"""
+        # Emit a signal here
+        create_user_platform_link(edx_user.id, course_key.org)
 
     def _get_course_and_usage_id(self) -> tuple[str, str]:
         """Return course_id and usage_id from target_link_uri string"""
