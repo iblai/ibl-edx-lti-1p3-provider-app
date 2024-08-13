@@ -28,7 +28,6 @@ from opaque_keys.edx.keys import CourseKey, UsageKey
 from openedx.core.djangoapps.safe_sessions.middleware import (
     mark_user_change_as_expected,
 )
-from openedx.core.djangoapps.site_configuration.models import SiteConfiguration
 from openedx.core.lib.url_utils import unquote_slashes
 from pylti1p3.contrib.django import (
     DjangoCacheDataStorage,
@@ -41,8 +40,7 @@ from pylti1p3.exception import LtiException, OIDCException
 from .error_formatter import reformat_error
 from .error_response import get_lti_error_response, render_edx_error
 from .exceptions import MissingSessionError
-from .models import LaunchGate, LtiGradedResource, LtiProfile, LtiToolOrg
-from .services import create_user_platform_link
+from .models import LaunchGate, LtiGradedResource, LtiProfile
 from .session_access import has_lti_session_access, set_lti_session_access
 
 log = logging.getLogger(__name__)
@@ -148,7 +146,7 @@ class LtiToolLaunchView(LtiToolView):
             return self.launch_message.get_launch_data()
         return {}
 
-    def _authenticate_and_login(self) -> tuple[User, bool]:
+    def _authenticate_and_login(self):
         """
         Authenticate and authorize the user for this LTI message launch.
 
@@ -156,7 +154,7 @@ class LtiToolLaunchView(LtiToolView):
         authenticate the LTI user associated with it.
         """
 
-        _, created = LtiProfile.objects.get_or_create_from_claims(
+        LtiProfile.objects.get_or_create_from_claims(
             iss=self.launch_data["iss"],
             aud=self.launch_data["aud"],
             sub=self.launch_data["sub"],
@@ -179,7 +177,7 @@ class LtiToolLaunchView(LtiToolView):
                 self.launch_data["aud"],
             )
 
-        return edx_user, created
+        return edx_user
 
     def _bad_request_response(self):
         """
@@ -286,13 +284,6 @@ class LtiToolLaunchView(LtiToolView):
         self.handle_ags(course_key, usage_key)
         self._set_session_access()
         return redirect(self._get_target_link_uri())
-
-    def _emit_user_created_signal(
-        self, tool: LtiTool, edx_user: User, course_key: CourseKey
-    ) -> None:
-        """Runs registered user created hooks"""
-        # Emit a signal here
-        create_user_platform_link(edx_user.id, course_key.org)
 
     def _get_course_and_usage_id(self) -> tuple[str, str]:
         """Return course_id and usage_id from target_link_uri string"""

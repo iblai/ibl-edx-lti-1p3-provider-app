@@ -86,10 +86,10 @@ class LtiProfileManager(models.Manager):
         Get or create an instance from a LTI launch claims.
         """
         try:
-            return self.get_from_claims(iss=iss, aud=aud, sub=sub), False
+            return self.get_from_claims(iss=iss, aud=aud, sub=sub)
         except self.model.DoesNotExist:
             # User will be created on ``save()``.
-            return self.create(platform_id=iss, client_id=aud, subject_id=sub), True
+            return self.create(platform_id=iss, client_id=aud, subject_id=sub)
 
 
 class LtiProfile(models.Model):
