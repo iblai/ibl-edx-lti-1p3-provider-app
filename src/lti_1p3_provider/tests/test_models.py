@@ -95,19 +95,17 @@ class LtiProfileTest(TestCase):
         sub = "randomly-selected-sub-for-testing"
         aud = "randomly-selected-aud-for-testing"
         self.assertFalse(LtiProfile.objects.exists())
-        profile, created = LtiProfile.objects.get_or_create_from_claims(
+        profile = LtiProfile.objects.get_or_create_from_claims(
             iss=iss, aud=aud, sub=sub
         )
         self.assertIsNotNone(profile.user)
         self.assertEqual(iss, profile.platform_id)
         self.assertEqual(sub, profile.subject_id)
-        self.assertTrue(created)
 
-        profile_two, created = LtiProfile.objects.get_or_create_from_claims(
+        profile_two = LtiProfile.objects.get_or_create_from_claims(
             iss=iss, aud=aud, sub=sub
         )
         self.assertEqual(profile_two, profile)
-        self.assertFalse(created)
 
     def test_get_or_create_from_claims_twice(self):
         """
@@ -147,7 +145,7 @@ class TestLtiGradedResource:
             LtiGradedResource.objects.get_from_user_id(user.pk)
 
     def test_get_from_user_id_when_profile_then_found(self):
-        profile, _ = LtiProfile.objects.get_or_create_from_claims(
+        profile = LtiProfile.objects.get_or_create_from_claims(
             iss=self.iss, aud=self.aud, sub=self.sub
         )
         LtiGradedResource.objects.create(profile=profile)
@@ -177,7 +175,7 @@ class TestLtiGradedResource:
             "title": "A custom title",
         }
 
-        profile, _ = LtiProfile.objects.get_or_create_from_claims(
+        profile = LtiProfile.objects.get_or_create_from_claims(
             iss=self.iss, aud=self.aud, sub=self.sub
         )
         res = LtiGradedResource.objects.upsert_from_ags_launch(
