@@ -280,35 +280,6 @@ class LtiToolLaunchView(LtiToolView):
 
         edx_user, created = self._authenticate_and_login()
 
-        # FIXME: Refactor all of this into something more manageable
-        if created:
-            # FIXME: Refactor so we're not doing this multiple times (check launch gate)
-            lti_tool = self.lti_tool_config.get_lti_tool(
-                iss=self.launch_message.get_iss(),
-                client_id=self.launch_message.get_client_id(),
-            )
-            try:
-                org = lti_tool.tool_org.org
-                platform_key = SiteConfiguration.get_value_for_org(
-                    org.short_name, "platform_key"
-                )
-                if not platform_key:
-                    # FIXME: Refine this error message
-                    raise LtiException(
-                        "No platform_key found for org: %s", org.short_name
-                    )
-                # FIXME: Handle Lti1P3Exception here?
-                # I think will need to delete the user if we don't successfully create
-                # it in DM
-                create_user_platform_link(edx_user.id, platform_key)
-            except LtiToolOrg.DoesNotExist:
-                # NOTE: If ToolOrg DNE we don't need to associate it with a user
-                # Proceed as normal
-                pass
-
-            # Create UserPlatormLink for us if there's an Org associated w/ tool
-            #
-
         if not edx_user:
             return self._bad_request_response()
 
@@ -418,7 +389,9 @@ class LtiToolLaunchView(LtiToolView):
             return tool.launch_gate.can_access_key(target_usage_key)
         except LaunchGate.DoesNotExist:
             log.info(
-                "Tool (iss=%s, client_id=%s) has no launch gate; proceeding", tool.id
+                "Tool (iss=%s, client_id=%s) has no launch gate; proceeding",
+                tool.issuer,
+                tool.client_id,
             )
 
         return True
