@@ -276,7 +276,7 @@ class LtiToolLaunchView(LtiToolView):
 
         log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
 
-        edx_user, created = self._authenticate_and_login()
+        edx_user = self._authenticate_and_login()
 
         if not edx_user:
             return self._bad_request_response()
