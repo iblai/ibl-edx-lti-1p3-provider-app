@@ -41,3 +41,9 @@ class LtiTooLOrgAdmin(admin.ModelAdmin):
 
     def org_name(self, obj) -> str:
         return obj.org.short_name
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if db_field.name == "tool":
+            formfield.label_from_instance = lambda obj: f"{obj.title} ({obj.client_id})"
+        return formfield
