@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 2.2.0
+### Added
+- [#15](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/15): Adds a `LtiToolOrg` model to associate Tools with an Organization (multi-tenant)
+
+### Fixed
+- [#15](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/15): Log statment error when launching with no launch gate
+
+
 ## 2.1.0
 ### Added
 - [#16](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/16): Adds a `LaunchGate` model where we can define whether a tool can launch a specific `UsageKey`
