@@ -7,10 +7,19 @@ from common.djangoapps.student.tests.factories import UserFactory
 from django.urls import reverse
 from django.utils import timezone
 from opaque_keys.edx.locator import CourseLocator
-from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
+from organizations.tests.factories import OrganizationFactory
+from pylti1p3.contrib.django.lti1p3_tool_config.models import (
+    LtiTool,
+    LtiToolKey,
+)
 from pylti1p3.registration import Registration
 
-from lti_1p3_provider.models import LaunchGate, LtiGradedResource, LtiProfile
+from lti_1p3_provider.models import (
+    LaunchGate,
+    LtiGradedResource,
+    LtiProfile,
+    LtiToolOrg,
+)
 
 COURSE_KEY = CourseLocator(org="Org1", course="Course1", run="Run1")
 USAGE_KEY = COURSE_KEY.make_usage_key("vertical", "some-html-id")
@@ -223,9 +232,9 @@ class IdTokenFactory(factory.DictFactory):
     @classmethod
     def _create(cls, model_class, *args, **kwargs):
         obj = super()._create(model_class, *args, **kwargs)
-        obj[
-            "https://purl.imsglobal.org/spec/lti/claim/message_type"
-        ] = "LtiResourceLinkRequest"
+        obj["https://purl.imsglobal.org/spec/lti/claim/message_type"] = (
+            "LtiResourceLinkRequest"
+        )
         obj["https://purl.imsglobal.org/spec/lti/claim/version"] = "1.3.0"
         obj["https://purl.imsglobal.org/spec/lti/claim/deployment_id"] = obj.pop(
             "deployment_id"
@@ -272,3 +281,11 @@ class LaunchGateFactory(factory.django.DjangoModelFactory):
         model = LaunchGate
 
     tool = factory.SubFactory(LtiToolFactory)
+
+
+class LtiToolOrgFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = LtiToolOrg
+
+    tool = factory.SubFactory(LtiToolFactory)
+    org = factory.SubFactory(OrganizationFactory)
