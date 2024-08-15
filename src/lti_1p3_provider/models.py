@@ -57,6 +57,8 @@ from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 from opaque_keys.edx.django.models import CourseKeyField, UsageKeyField
 from opaque_keys.edx.keys import UsageKey
+from openedx.core.djangoapps.site_configuration.models import SiteConfiguration
+from organizations.models import Organization
 from pylti1p3.contrib.django import DjangoDbToolConf, DjangoMessageLaunch
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool
 from pylti1p3.grade import Grade
@@ -379,3 +381,19 @@ class LaunchGate(models.Model):
             allowed_orgs = usage_key.course_key.org in self.allowed_orgs
 
         return allowed_keys or allowed_orgs
+
+
+class LtiToolOrg(models.Model):
+    """Association between a Tool and an Organization
+
+    The short_name of an org is immutable, so we'll have to get our mutable version
+    from the SiteConfiguration.site_values['platform_key']
+    """
+
+    tool = models.OneToOneField(
+        LtiTool, on_delete=models.CASCADE, related_name="tool_org"
+    )
+    org = models.ForeignKey(Organization, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"{self.tool.title} - {self.org}"

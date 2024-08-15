@@ -1,11 +1,4 @@
-"""
-=======================
-Content Libraries Views
-=======================
-
-This module contains the REST APIs for blockstore-based content libraries, and
-LTI 1.3 views.
-"""
+"""LTI 1.3 Provider Views"""
 
 from __future__ import annotations
 
@@ -26,7 +19,6 @@ from django.shortcuts import redirect
 from django.urls import Resolver404, resolve, reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
-from django.utils.translation import gettext as _
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import View
@@ -285,6 +277,7 @@ class LtiToolLaunchView(LtiToolView):
         log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
 
         edx_user = self._authenticate_and_login()
+
         if not edx_user:
             return self._bad_request_response()
 
@@ -387,7 +380,9 @@ class LtiToolLaunchView(LtiToolView):
             return tool.launch_gate.can_access_key(target_usage_key)
         except LaunchGate.DoesNotExist:
             log.info(
-                "Tool (iss=%s, client_id=%s) has no launch gate; proceeding", tool.id
+                "Tool (iss=%s, client_id=%s) has no launch gate; proceeding",
+                tool.issuer,
+                tool.client_id,
             )
 
         return True
