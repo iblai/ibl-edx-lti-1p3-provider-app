@@ -17,6 +17,7 @@ from pylti1p3.registration import Registration
 from lti_1p3_provider.models import (
     LaunchGate,
     LtiGradedResource,
+    LtiKeyOrg,
     LtiProfile,
     LtiToolOrg,
 )
@@ -126,7 +127,7 @@ class LtiToolKeyFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = LtiToolKey
 
-    name = factory.Sequence(lambda n: f"Key {n}")
+    name = factory.Sequence(lambda n: f"Key-{n}")
     private_key = TOOL_PRIVATE_KEY
     public_key = TOOL_PUBLIC_KEY
 

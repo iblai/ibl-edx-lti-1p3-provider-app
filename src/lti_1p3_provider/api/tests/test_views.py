@@ -56,8 +56,32 @@ class TestLtiKeyViews:
         assert resp.json() == ["Tool name: 'test' already exists"]
         assert resp.status_code == 400
 
-    def test_list_returns_keys_for_specified_orgs_only(self):
-        pass
+    def test_list_returns_keys_for_specified_org_only(self, client):
+        key1_org1 = factories.LtiKeyOrgFactory()
+        key2_org1 = factories.LtiKeyOrgFactory(org=key1_org1.org)
+        endpoint = self._get_list_endpoint(key1_org1.org.short_name)
+
+        # These won't be returned
+        key1_org2 = factories.LtiKeyOrgFactory()
+        key2_org2 = factories.LtiKeyOrgFactory(org=key1_org2.org)
+
+        resp = client.get(endpoint)
+
+        breakpoint()
+        data = resp.json()["results"]
+        assert data == [
+            {
+                "name": key1_org1.key.name,
+                "public_key": key1_org1.key.public_key,
+                "public_jwk": key1_org1.key.public_jwk,
+            },
+            {
+                "name": key2_org1.key.name,
+                "public_key": key2_org1.key.public_key,
+                "public_jwk": key2_org1.key.public_jwk,
+            },
+        ]
+        assert resp.status_code == 200
 
     def test_delete(self):
         pass
