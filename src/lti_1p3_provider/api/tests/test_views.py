@@ -21,6 +21,12 @@ class TestLtiKeyViews:
             "lti_1p3_provider:lti-keys-list", kwargs={"org_short_name": org_short_name}
         )
 
+    def _get_detail_endpoint(self, org_short_name, pk) -> str:
+        return reverse(
+            "lti_1p3_provider:lti-keys-detail",
+            kwargs={"org_short_name": org_short_name, "pk": pk},
+        )
+
     def test_create_returns_201(self, client):
         """Test creating a key for an org returns a 201"""
         org1 = OrganizationFactory()
@@ -49,6 +55,16 @@ class TestLtiKeyViews:
             "id": key.id,
         }
 
+    def test_create_org_dne_returns_400(self, client):
+        """Test creating key for org that DNE returns 400"""
+        payload = {"name": "test"}
+        endpoint = self._get_list_endpoint("dne")
+
+        resp = client.post(endpoint, data=payload)
+
+        assert resp.json() == {"non_field_errors": ["Org: 'dne' Does Not Exist"]}
+        assert resp.status_code == 400
+
     def test_create_name_already_exists_in_org_returns_400(self, client):
         """Test creating a tool name that already exists in org returns 400"""
         org1 = OrganizationFactory()
@@ -62,6 +78,7 @@ class TestLtiKeyViews:
         assert resp.status_code == 400
 
     def test_list_returns_keys_for_specified_org_only(self, client):
+        """Test returns LtiKeys for specified org only"""
         key1_org1 = factories.LtiKeyOrgFactory()
         key2_org1 = factories.LtiKeyOrgFactory(org=key1_org1.org)
         endpoint = self._get_list_endpoint(key1_org1.org.short_name)
@@ -102,5 +119,16 @@ class TestLtiKeyViews:
         assert data["results"] == []
         assert resp.status_code == 200
 
-    def test_delete(self, client):
-        pass
+    def test_delete_returns_204(self, client):
+        """Delete removes LtiToolKey and LtiKeyOrg for specified enttiy, returns 204"""
+        key_org = factories.LtiKeyOrgFactory()
+        org = key_org.org
+        key = key_org.key
+        endpoint = self._get_detail_endpoint(org.short_name, key.pk)
+
+        resp = client.delete(endpoint)
+
+        assert resp.status_code == 204
+
+        assert LtiKeyOrg.objects.count() == 0
+        assert LtiToolKey.objects.count() == 0
