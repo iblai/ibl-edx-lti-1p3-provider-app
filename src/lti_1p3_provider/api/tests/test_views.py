@@ -132,3 +132,20 @@ class TestLtiKeyViews:
 
         assert LtiKeyOrg.objects.count() == 0
         assert LtiToolKey.objects.count() == 0
+
+    def test_detail_endpoint_returns_200(self, client):
+        """Detail endpoint returns entity"""
+        key_org = factories.LtiKeyOrgFactory()
+        org = key_org.org
+        key = key_org.key
+        endpoint = self._get_detail_endpoint(org.short_name, key.pk)
+
+        resp = client.get(endpoint)
+
+        assert resp.json() == {
+            "name": key.name,
+            "public_key": key.public_key,
+            "public_jwk": key.public_jwk,
+            "id": key.id,
+        }
+        assert resp.status_code == 200
