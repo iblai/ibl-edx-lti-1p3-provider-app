@@ -289,3 +289,11 @@ class LtiToolOrgFactory(factory.django.DjangoModelFactory):
 
     tool = factory.SubFactory(LtiToolFactory)
     org = factory.SubFactory(OrganizationFactory)
+
+
+class LtiKeyOrgFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = LtiKeyOrg
+
+    key = factory.SubFactory(LtiToolKeyFactory)
+    org = factory.SubFactory(OrganizationFactory)
