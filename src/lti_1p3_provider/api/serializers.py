@@ -28,7 +28,7 @@ class LtiToolKeySerializer(serializers.ModelSerializer):
             # Since we're validating it we may as well store it
             attrs["org"] = Organization.objects.get(short_name=short_name)
         except Organization.DoesNotExist:
-            raise serializers.ValidationError(f"Org {short_name} Does Not Exist")
+            raise serializers.ValidationError(f"Org: '{short_name}' Does Not Exist")
 
         return super().validate(attrs)
 
