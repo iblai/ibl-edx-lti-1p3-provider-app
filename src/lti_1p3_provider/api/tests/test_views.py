@@ -40,9 +40,14 @@ class TestLtiKeyViews:
         assert key_org.org == org1
 
         # Good response
+        key = key_org.key
         assert resp.status_code == 201
-        data = resp.json()
-        assert data.keys() == {"name", "public_jwk", "public_key"}
+        assert resp.json() == {
+            "public_key": key.public_key,
+            "public_jwk": key.public_jwk,
+            "name": key.name,
+            "id": key.id,
+        }
 
     def test_create_name_already_exists_in_org_returns_400(self, client):
         """Test creating a tool name that already exists in org returns 400"""
@@ -67,18 +72,21 @@ class TestLtiKeyViews:
 
         resp = client.get(endpoint)
 
-        breakpoint()
         data = resp.json()["results"]
+        key1 = key1_org1.key
+        key2 = key2_org1.key
         assert data == [
             {
-                "name": key1_org1.key.name,
-                "public_key": key1_org1.key.public_key,
-                "public_jwk": key1_org1.key.public_jwk,
+                "name": key1.name,
+                "public_key": key1.public_key,
+                "public_jwk": key1.public_jwk,
+                "id": key1.id,
             },
             {
-                "name": key2_org1.key.name,
-                "public_key": key2_org1.key.public_key,
-                "public_jwk": key2_org1.key.public_jwk,
+                "name": key2.name,
+                "public_key": key2.public_key,
+                "public_jwk": key2.public_jwk,
+                "id": key2.id,
             },
         ]
         assert resp.status_code == 200
