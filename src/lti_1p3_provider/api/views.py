@@ -18,3 +18,8 @@ class LtiKeyViewSet(ModelViewSet):
         return LtiToolKey.objects.select_related("key_org__key").filter(
             key_org__org__short_name=self.kwargs["org_short_name"]
         )
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx["org_short_name"] = self.kwargs["org_short_name"]
+        return ctx
