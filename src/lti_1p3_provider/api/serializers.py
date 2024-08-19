@@ -11,11 +11,7 @@ from . import ssl_services
 class LtiToolKeySerializer(serializers.ModelSerializer):
     class Meta:
         model = LtiToolKey
-        fields = [
-            "name",
-            "public_key",
-            "public_jwk",
-        ]
+        fields = ["name", "public_key", "public_jwk", "id"]
 
     public_key = serializers.CharField(read_only=True)
     public_jwk = serializers.JSONField(read_only=True)
