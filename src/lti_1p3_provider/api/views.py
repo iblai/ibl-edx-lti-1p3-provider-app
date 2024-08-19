@@ -15,8 +15,10 @@ class LtiKeyViewSet(ModelViewSet):
     permission_classes = []
 
     def get_queryset(self):
-        return LtiToolKey.objects.select_related("key_org__key").filter(
-            key_org__org__short_name=self.kwargs["org_short_name"]
+        return (
+            LtiToolKey.objects.select_related("key_org__key")
+            .filter(key_org__org__short_name=self.kwargs["org_short_name"])
+            .order_by("name")
         )
 
     def get_serializer_context(self):
