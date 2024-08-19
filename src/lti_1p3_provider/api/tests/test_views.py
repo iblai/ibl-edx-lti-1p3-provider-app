@@ -91,5 +91,16 @@ class TestLtiKeyViews:
         ]
         assert resp.status_code == 200
 
-    def test_delete(self):
+    def test_list_org_dne_returns_empty_list_with_200(self, client):
+        """If org dne, empty list is returned with 200"""
+        endpoint = self._get_list_endpoint("dne")
+
+        resp = client.get(endpoint)
+
+        data = resp.json()
+        assert data["count"] == 0
+        assert data["results"] == []
+        assert resp.status_code == 200
+
+    def test_delete(self, client):
         pass
