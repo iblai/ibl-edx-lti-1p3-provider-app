@@ -1,7 +1,10 @@
 # LTI 1.3 Provider
 
 ## Unreleased
+
+## 2.3.0
 - [#21](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/21): Adds API to manage `LtiToolKey`'s at a tenant level
+- [#22](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/22): Adds API to manage `LtiTool`'s at a tenant level
 
 ## 2.2.0
 ### Added

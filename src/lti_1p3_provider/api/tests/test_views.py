@@ -5,14 +5,14 @@ from typing import Any
 import pytest
 from common.djangoapps.student.tests.factories import UserFactory
 from django.urls import reverse
-from lti_1p3_provider.models import LtiKeyOrg
+from lti_1p3_provider.models import LtiKeyOrg, LtiToolOrg
 from lti_1p3_provider.tests import factories
 from openedx.core.djangoapps.oauth_dispatch.tests.factories import (
     AccessTokenFactory,
     ApplicationFactory,
 )
 from organizations.tests.factories import OrganizationFactory
-from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiToolKey
+from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
 
 
 @pytest.fixture(autouse=True)
@@ -36,19 +36,7 @@ def non_admin_token() -> str:
     yield access_token.token
 
 
-@pytest.mark.django_db
-class TestLtiKeyViews:
-    def _get_list_endpoint(self, org_short_name) -> str:
-        return reverse(
-            "lti_1p3_provider:lti-keys-list", kwargs={"org_short_name": org_short_name}
-        )
-
-    def _get_detail_endpoint(self, org_short_name, pk) -> str:
-        return reverse(
-            "lti_1p3_provider:lti-keys-detail",
-            kwargs={"org_short_name": org_short_name, "pk": pk},
-        )
-
+class BaseView:
     def request(
         self,
         client,
@@ -64,6 +52,20 @@ class TestLtiKeyViews:
             extra.pop("HTTP_AUTHORIZATION")
 
         return getattr(client, method)(endpoint, data=data, **extra)
+
+
+@pytest.mark.django_db
+class TestLtiKeyViews(BaseView):
+    def _get_list_endpoint(self, org_short_name) -> str:
+        return reverse(
+            "lti_1p3_provider:lti-keys-list", kwargs={"org_short_name": org_short_name}
+        )
+
+    def _get_detail_endpoint(self, org_short_name, pk) -> str:
+        return reverse(
+            "lti_1p3_provider:lti-keys-detail",
+            kwargs={"org_short_name": org_short_name, "pk": pk},
+        )
 
     def test_create_returns_201(self, client, admin_token):
         """Test creating a key for an org returns a 201"""
@@ -201,6 +203,18 @@ class TestLtiKeyViews:
         assert LtiKeyOrg.objects.count() == 0
         assert LtiToolKey.objects.count() == 0
 
+    def test_delete_key_not_in_target_org_returns_404(self, client, admin_token):
+        """Delete removes LtiToolKey and LtiKeyOrg for specified enttiy, returns 204"""
+        other_org = OrganizationFactory()
+        key_org = factories.LtiKeyOrgFactory()
+        key = key_org.key
+        endpoint = self._get_detail_endpoint(other_org.short_name, key.pk)
+
+        resp = self.request(client, "delete", endpoint, token=admin_token)
+
+        assert resp.json() == {"detail": "Not found."}
+        assert resp.status_code == 404
+
     def test_detail_returns_200(self, client, admin_token):
         """Detail endpoint returns entity"""
         org = OrganizationFactory()
@@ -243,3 +257,223 @@ class TestLtiKeyViews:
         assert resp.status_code == 200
         key.refresh_from_db()
         assert key.name == f"{org.short_name}-new-name"
+
+
+@pytest.mark.django_db
+class TestLtiToolViews(BaseView):
+    def _get_list_endpoint(self, org_short_name) -> str:
+        return reverse(
+            "lti_1p3_provider:lti-tools-list", kwargs={"org_short_name": org_short_name}
+        )
+
+    def _get_detail_endpoint(self, org_short_name, pk) -> str:
+        return reverse(
+            "lti_1p3_provider:lti-tools-detail",
+            kwargs={"org_short_name": org_short_name, "pk": pk},
+        )
+
+    def setup_method(self):
+        self.key_org = factories.LtiKeyOrgFactory()
+        self.org = self.key_org.org
+        self.key = self.key_org.key
+
+        self.payload = {
+            "title": "test",
+            "is_active": True,
+            "issuer": "https://issuer.local",
+            "client_id": "12345",
+            "use_by_default": False,
+            "auth_login_url": "https://issuer.local/auth",
+            "auth_token_url": "https://issuer.local/token",
+            "auth_audience": "",
+            "key_set_url": "https://issuer.local/keyset",
+            "key_set": "",
+            "tool_key": self.key.id,
+            "deployment_ids": [1, "test", 1234, "5"],
+        }
+
+    def test_create_returns_201(self, client, admin_token):
+        """Test creating a tool for an org returns a 201"""
+        endpoint = self._get_list_endpoint(self.org.short_name)
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        tool = LtiTool.objects.get(client_id="12345")
+        expected = self.payload.copy()
+        expected["id"] = tool.id
+        expected["deployment_ids"] = [str(x) for x in self.payload["deployment_ids"]]
+        assert resp.json() == expected
+        assert tool.tool_org.org == self.org
+
+    def test_create_org_dne_returns_400(self, client, admin_token):
+        """Test creating key for org that DNE returns 400"""
+        endpoint = self._get_list_endpoint("dne")
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.json() == {
+            "tool_key": [f'Invalid pk "{self.key.id}" - object does not exist.']
+        }
+        assert resp.status_code == 400
+
+    def test_create_tool_key_dne_returns_400(self, client, admin_token):
+        """If key DNE, 400 is returned"""
+        bad_id = self.key.id + 1000
+        endpoint = self._get_list_endpoint(self.org.short_name)
+        self.payload["tool_key"] = bad_id
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.json() == {
+            "tool_key": [f'Invalid pk "{bad_id}" - object does not exist.']
+        }
+        assert resp.status_code == 400
+
+    def test_create_tool_key_in_other_org_returns_400(self, client, admin_token):
+        """If trying to use a key that doesn't belong to your org, 400 is returned"""
+        new_key_org = factories.LtiKeyOrgFactory()
+        endpoint = self._get_list_endpoint(self.org.short_name)
+        # This key belongs to a different org
+        self.payload["tool_key"] = new_key_org.key.id
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.json() == {
+            "tool_key": [f'Invalid pk "{new_key_org.key.id}" - object does not exist.']
+        }
+        assert resp.status_code == 400
+
+    def test_create_issuer_and_client_id_already_exists_returns_400(
+        self, client, admin_token
+    ):
+        """Test creating tool if issuer/client_id already exists fails with 400"""
+        tool_org = factories.LtiToolOrgFactory()
+        tool = tool_org.tool
+        endpoint = self._get_list_endpoint(self.org.short_name)
+        self.payload["issuer"] = tool.issuer
+        self.payload["client_id"] = tool.client_id
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.json() == {
+            "non_field_errors": ["The fields issuer, client_id must make a unique set."]
+        }
+        assert resp.status_code == 400
+
+    def test_list_returns_tools_for_specified_org_only_200(self, client, admin_token):
+        """Test returns LtiKeys for specified org only"""
+        org1 = OrganizationFactory()
+        org2 = OrganizationFactory()
+        tool1_org1 = factories.LtiToolOrgFactory(org=org1)
+        tool2_org1 = factories.LtiToolOrgFactory(org=org1)
+        endpoint = self._get_list_endpoint(tool1_org1.org.short_name)
+
+        # These won't be returned
+        tool1_org2 = factories.LtiToolOrgFactory(org=org2)
+        tool2_org2 = factories.LtiToolOrgFactory(org=org2)
+        tool3_org2 = factories.LtiToolOrgFactory(org=org2)
+
+        resp = self.request(client, "get", endpoint, token=admin_token)
+
+        assert resp.status_code == 200, resp.json()
+        data = resp.json()
+        assert data["count"] == 2
+        ids_returned = set([x["id"] for x in data["results"]])
+        expected_ids = set([tool1_org1.tool.id, tool2_org1.tool.id])
+        assert ids_returned == expected_ids
+
+    def test_list_org_dne_returns_empty_list_with_200(self, client, admin_token):
+        """If org dne, empty list is returned with 200"""
+        endpoint = self._get_list_endpoint("dne")
+
+        resp = self.request(client, "get", endpoint, token=admin_token)
+
+        data = resp.json()
+        assert data["count"] == 0
+        assert data["results"] == []
+        assert resp.status_code == 200
+
+    def test_delete_returns_204(self, client, admin_token):
+        """Delete removes LtiTool and LtiToolOrg for specified enttiy, returns 204"""
+        tool_org = factories.LtiToolOrgFactory(org=self.org)
+        endpoint = self._get_detail_endpoint(self.org.short_name, tool_org.tool.pk)
+
+        resp = self.request(client, "delete", endpoint, token=admin_token)
+
+        assert resp.status_code == 204
+        assert LtiToolOrg.objects.count() == 0
+        assert LtiTool.objects.count() == 0
+
+    def test_delete_tool_not_in_target_org_returns_404(self, client, admin_token):
+        """If target tool not in specified org, returns a 400"""
+        # This tool is part of a different org
+        tool_org = factories.LtiToolOrgFactory()
+        endpoint = self._get_detail_endpoint(self.org.short_name, tool_org.tool.pk)
+
+        resp = self.request(client, "delete", endpoint, token=admin_token)
+
+        assert resp.json() == {"detail": "Not found."}
+        assert resp.status_code == 404
+
+    def test_detail_returns_200(self, client, admin_token):
+        """Detail endpoint returns entity"""
+        org = OrganizationFactory()
+        tool_org = factories.LtiToolOrgFactory(org=org)
+        tool = tool_org.tool
+        org = tool_org.org
+        endpoint = self._get_detail_endpoint(org.short_name, tool.pk)
+
+        resp = self.request(client, "get", endpoint, token=admin_token)
+
+        assert resp.status_code == 200, resp.json()
+        assert resp.json()["id"] == tool.id
+
+    def test_update_returns_200(self, client, admin_token):
+        """Update updates entity and returns 200"""
+        org = OrganizationFactory()
+        key_org = factories.LtiToolOrgFactory(org=org, tool__tool_key=self.key)
+        new_key = factories.LtiKeyOrgFactory(org=org)
+        org = key_org.org
+        tool = key_org.tool
+        endpoint = self._get_detail_endpoint(org.short_name, tool.pk)
+        self.payload["tool_key"] = new_key.key.id
+
+        resp = self.request(
+            client, "put", endpoint, data=self.payload, token=admin_token
+        )
+
+        expected = self.payload.copy()
+        expected["id"] = tool.id
+        expected["deployment_ids"] = [str(x) for x in self.payload["deployment_ids"]]
+        assert resp.json() == expected
+        assert resp.status_code == 200
+
+    def test_update_with_tool_key_from_other_org_returns_400(self, client, admin_token):
+        """Update updates entity and returns 200"""
+        org = OrganizationFactory()
+        org2 = OrganizationFactory()
+        key_org = factories.LtiToolOrgFactory(org=org, tool__tool_key=self.key)
+        new_key = factories.LtiKeyOrgFactory(org=org2)
+        org = key_org.org
+        tool = key_org.tool
+        endpoint = self._get_detail_endpoint(org.short_name, tool.pk)
+        self.payload["tool_key"] = new_key.key.id
+
+        resp = self.request(
+            client, "put", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.status_code == 400, resp.json()
+        assert resp.json() == {
+            "tool_key": [f'Invalid pk "{new_key.key.id}" - object does not exist.']
+        }
