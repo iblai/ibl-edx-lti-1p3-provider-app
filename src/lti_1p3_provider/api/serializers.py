@@ -95,11 +95,6 @@ class LtiToolSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         lti_org = validated_data.pop("org")
-        try:
-            tool = super().create(validated_data)
-        except IntegrityError:
-            raise serializers.ValidationError(
-                "Issuer and client combination already exists"
-            )
+        tool = super().create(validated_data)
         LtiToolOrg.objects.create(tool=tool, org=lti_org)
         return tool
