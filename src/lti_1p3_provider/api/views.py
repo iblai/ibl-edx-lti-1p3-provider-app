@@ -1,6 +1,6 @@
 from django.utils.decorators import method_decorator
 from openedx.core.lib.api.authentication import BearerAuthentication
-from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiToolKey
+from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
 from rest_framework.permissions import IsAdminUser
 from rest_framework.viewsets import ModelViewSet
 
@@ -35,9 +35,9 @@ class LtiToolViewSet(ModelViewSet):
 
     def get_queryset(self):
         return (
-            LtiToolKey.objects.select_related("tool_org__tool")
+            LtiTool.objects.select_related("tool_org__tool")
             .filter(tool_org__org__short_name=self.kwargs["org_short_name"])
-            .order_by("name")
+            .order_by("title")
         )
 
     def get_serializer_context(self):
