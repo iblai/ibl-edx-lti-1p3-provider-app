@@ -17,6 +17,11 @@ urlpatterns = [
         name="lti-display",
     ),
     path("pub/jwks/", views.LtiToolJwksView.as_view(), name="lti-pub-jwks"),
+    path(
+        "pub/orgs/<slug:org_short_name>/jwks/",
+        views.LtiOrgToolJwksView.as_view(),
+        name="lti-pub-org-jwks",
+    ),
     # API urls
     path("api/orgs/<slug:org_short_name>/", include(api_router.urls)),
 ]
