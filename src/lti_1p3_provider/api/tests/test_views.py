@@ -33,7 +33,7 @@ class TestLtiKeyViews:
         payload = {"name": "test"}
         endpoint = self._get_list_endpoint(org1.short_name)
 
-        resp = client.post(endpoint, data=payload)
+        resp = client.post(endpoint, data=payload, content_type="application/json")
 
         # LtiToolKey is created
         key = LtiToolKey.objects.get(name=f"{org1.short_name}-test")
@@ -60,7 +60,7 @@ class TestLtiKeyViews:
         payload = {"name": "test"}
         endpoint = self._get_list_endpoint("dne")
 
-        resp = client.post(endpoint, data=payload)
+        resp = client.post(endpoint, data=payload, content_type="application/json")
 
         assert resp.json() == {"non_field_errors": ["Org: 'dne' Does Not Exist"]}
         assert resp.status_code == 400
@@ -72,7 +72,7 @@ class TestLtiKeyViews:
         payload = {"name": "test"}
         endpoint = self._get_list_endpoint(org1.short_name)
 
-        resp = client.post(endpoint, data=payload)
+        resp = client.post(endpoint, data=payload, content_type="application/json")
 
         assert resp.json() == ["Tool name: 'test' already exists"]
         assert resp.status_code == 400
@@ -143,7 +143,7 @@ class TestLtiKeyViews:
         assert LtiKeyOrg.objects.count() == 0
         assert LtiToolKey.objects.count() == 0
 
-    def test_detail_endpoint_returns_200(self, client):
+    def test_detail_returns_200(self, client):
         """Detail endpoint returns entity"""
         org = OrganizationFactory()
         key_org = factories.LtiKeyOrgFactory(
@@ -157,6 +157,27 @@ class TestLtiKeyViews:
 
         assert resp.json() == {
             "name": "test",
+            "public_key": key.public_key,
+            "public_jwk": key.public_jwk,
+            "id": key.id,
+        }
+        assert resp.status_code == 200
+
+    def test_update_returns_200(self, client):
+        """Update updates name and returns 200"""
+        org = OrganizationFactory()
+        key_org = factories.LtiKeyOrgFactory(
+            org=org, key__name=f"{org.short_name}-test"
+        )
+        org = key_org.org
+        key = key_org.key
+        endpoint = self._get_detail_endpoint(org.short_name, key.pk)
+        payload = {"name": "new-name"}
+
+        resp = client.put(endpoint, data=payload, content_type="application/json")
+
+        assert resp.json() == {
+            "name": "new-name",
             "public_key": key.public_key,
             "public_jwk": key.public_jwk,
             "id": key.id,
