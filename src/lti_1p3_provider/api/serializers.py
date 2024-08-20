@@ -76,8 +76,8 @@ class LtiToolSerializer(serializers.ModelSerializer):
 
     deployment_ids = StringListField()
 
-    def __init__(self, instance=None, data=..., **kwargs):
-        super().__init__(instance, data, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         # NOTE: Restrict the tool_key querset to keys part of current org
         self.fields["tool_key"].queryset = LtiToolKey.objects.filter(
             key_org__org__short_name=self.context["org_short_name"]
@@ -91,7 +91,7 @@ class LtiToolSerializer(serializers.ModelSerializer):
         except Organization.DoesNotExist:
             raise serializers.ValidationError(f"Org: '{short_name}' Does Not Exist")
 
-        return super().validate(attrs)
+        return attrs
 
     def create(self, validated_data):
         lti_org = validated_data.pop("org")
