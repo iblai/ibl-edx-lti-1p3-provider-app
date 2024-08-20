@@ -1,6 +1,7 @@
 """
 Tests for LTI views.
 """
+
 from __future__ import annotations
 
 import json
@@ -19,8 +20,13 @@ from django.http import Http404, HttpResponse
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
+from organizations.tests.factories import OrganizationFactory
 from pylti1p3.registration import Registration
 
+from lti_1p3_provider.api.ssl_services import (
+    generate_private_key_pem,
+    priv_to_public_key_pem,
+)
 from lti_1p3_provider.models import LtiGradedResource, LtiProfile
 from lti_1p3_provider.session_access import LTI_SESSION_KEY
 from lti_1p3_provider.views import DisplayTargetResource, LtiToolLaunchView
@@ -594,6 +600,59 @@ class TestLtiToolJwksViewTest:
         response = client.get(URL_LIB_LTI_JWKS)
         assert response.status_code == 200
         assert response.json() == {"keys": []}
+
+
+@pytest.mark.django_db
+class TestLtiOrgToolJwksViewTest:
+    """
+    Test JWKS view for specific Org only
+    """
+
+    @override_features(ENABLE_LTI_1P3_PROVIDER=True)
+    def test_keys_returned_for_specified_org_only(self, client):
+        """Returns keys only for specified org"""
+        priv1 = generate_private_key_pem()
+        pub1 = priv_to_public_key_pem(priv1)
+        priv2 = generate_private_key_pem()
+        pub2 = priv_to_public_key_pem(priv2)
+
+        org1 = OrganizationFactory()
+        org2 = OrganizationFactory()
+        key1_org1 = factories.LtiKeyOrgFactory(
+            org=org1, key__private_key=priv1, key__public_key=pub1
+        )
+        key2_org1 = factories.LtiKeyOrgFactory(
+            org=org1, key__private_key=priv2, key__public_key=pub2
+        )
+        # This key will not be in the output
+        key1_org2 = factories.LtiKeyOrgFactory(org=org2)
+        endpoint = reverse(
+            "lti_1p3_provider:lti-pub-org-jwks",
+            kwargs={"org_short_name": org1.short_name},
+        )
+
+        response = client.get(endpoint)
+
+        assert response.status_code == 200
+        keys = response.json()["keys"]
+        assert json.loads(key1_org1.key.public_jwk) in keys
+        assert json.loads(key2_org1.key.public_jwk) in keys
+        assert len(keys) == 2
+
+    @override_features(ENABLE_LTI_1P3_PROVIDER=True)
+    def test_no_keys_for_org_returns_empty_list(self, client):
+        """Returns keys only for specified org"""
+
+        org1 = OrganizationFactory()
+        endpoint = reverse(
+            "lti_1p3_provider:lti-pub-org-jwks",
+            kwargs={"org_short_name": org1.short_name},
+        )
+
+        response = client.get(endpoint)
+
+        assert response.status_code == 200
+        keys = response.json()["keys"] == []
 
 
 @pytest.mark.django_db

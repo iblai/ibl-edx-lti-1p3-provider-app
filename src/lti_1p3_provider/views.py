@@ -40,6 +40,7 @@ from pylti1p3.exception import LtiException, OIDCException
 from .error_formatter import reformat_error
 from .error_response import get_lti_error_response, render_edx_error
 from .exceptions import MissingSessionError
+from .jwks import get_jwks_for_org
 from .models import LaunchGate, LtiGradedResource, LtiProfile
 from .session_access import has_lti_session_access, set_lti_session_access
 
@@ -454,6 +455,19 @@ class LtiToolJwksView(LtiToolView):
         Return the JWKS.
         """
         return JsonResponse(self.lti_tool_config.get_jwks(), safe=False)
+
+
+class LtiOrgToolJwksView(LtiToolView):
+    """
+    JSON Web Key Sets view for a specific org
+    """
+
+    def get(self, request, org_short_name: str):
+        """
+        Return the JWKS.
+        """
+
+        return JsonResponse(get_jwks_for_org(org_short_name), safe=False)
 
 
 # This was taken from lms/djangoapps/lti_provider

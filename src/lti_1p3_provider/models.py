@@ -60,7 +60,7 @@ from opaque_keys.edx.keys import UsageKey
 from openedx.core.djangoapps.site_configuration.models import SiteConfiguration
 from organizations.models import Organization
 from pylti1p3.contrib.django import DjangoDbToolConf, DjangoMessageLaunch
-from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool
+from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
 from pylti1p3.grade import Grade
 
 EDX_LTI_EMAIL_DOMAIN = "edx-lti-1p3.com"
@@ -397,3 +397,15 @@ class LtiToolOrg(models.Model):
 
     def __str__(self):
         return f"{self.tool.title} - {self.org}"
+
+
+class LtiKeyOrg(models.Model):
+    """Associates an LtiKey with an edx Organization"""
+
+    key = models.OneToOneField(
+        LtiToolKey, on_delete=models.CASCADE, related_name="key_org"
+    )
+    org = models.ForeignKey(Organization, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"{self.key.name} - {self.org.short_name}"
