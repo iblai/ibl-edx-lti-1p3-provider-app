@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from common.djangoapps.student.tests.factories import UserFactory
 from django.urls import reverse
-from lti_1p3_provider.models import LtiKeyOrg
+from lti_1p3_provider.models import LtiKeyOrg, LtiToolOrg
 from lti_1p3_provider.tests import factories
 from openedx.core.djangoapps.oauth_dispatch.tests.factories import (
     AccessTokenFactory,
@@ -203,6 +203,18 @@ class TestLtiKeyViews(BaseView):
         assert LtiKeyOrg.objects.count() == 0
         assert LtiToolKey.objects.count() == 0
 
+    def test_delete_key_not_in_target_org_returns_404(self, client, admin_token):
+        """Delete removes LtiToolKey and LtiKeyOrg for specified enttiy, returns 204"""
+        other_org = OrganizationFactory()
+        key_org = factories.LtiKeyOrgFactory()
+        key = key_org.key
+        endpoint = self._get_detail_endpoint(other_org.short_name, key.pk)
+
+        resp = self.request(client, "delete", endpoint, token=admin_token)
+
+        assert resp.json() == {"detail": "Not found."}
+        assert resp.status_code == 404
+
     def test_detail_returns_200(self, client, admin_token):
         """Detail endpoint returns entity"""
         org = OrganizationFactory()
@@ -303,7 +315,9 @@ class TestLtiToolViews(BaseView):
             client, "post", endpoint, data=self.payload, token=admin_token
         )
 
-        assert resp.json() == {"non_field_errors": ["Org: 'dne' Does Not Exist"]}
+        assert resp.json() == {
+            "tool_key": [f'Invalid pk "{self.key.id}" - object does not exist.']
+        }
         assert resp.status_code == 400
 
     def test_create_tool_key_dne_returns_400(self, client, admin_token):
@@ -378,7 +392,6 @@ class TestLtiToolViews(BaseView):
         expected_ids = set([tool1_org1.tool.id, tool2_org1.tool.id])
         assert ids_returned == expected_ids
 
-    @pytest.mark.skip
     def test_list_org_dne_returns_empty_list_with_200(self, client, admin_token):
         """If org dne, empty list is returned with 200"""
         endpoint = self._get_list_endpoint("dne")
@@ -390,20 +403,27 @@ class TestLtiToolViews(BaseView):
         assert data["results"] == []
         assert resp.status_code == 200
 
-    @pytest.mark.skip
     def test_delete_returns_204(self, client, admin_token):
-        """Delete removes LtiToolKey and LtiKeyOrg for specified enttiy, returns 204"""
-        key_org = factories.LtiKeyOrgFactory()
-        org = key_org.org
-        key = key_org.key
-        endpoint = self._get_detail_endpoint(org.short_name, key.pk)
+        """Delete removes LtiTool and LtiToolOrg for specified enttiy, returns 204"""
+        tool_org = factories.LtiToolOrgFactory(org=self.org)
+        endpoint = self._get_detail_endpoint(self.org.short_name, tool_org.tool.pk)
 
         resp = self.request(client, "delete", endpoint, token=admin_token)
 
         assert resp.status_code == 204
+        assert LtiToolOrg.objects.count() == 0
+        assert LtiTool.objects.count() == 0
 
-        assert LtiKeyOrg.objects.count() == 0
-        assert LtiToolKey.objects.count() == 0
+    def test_delete_tool_not_in_target_org_returns_404(self, client, admin_token):
+        """If target tool not in specified org, returns a 400"""
+        # This tool is part of a different org
+        tool_org = factories.LtiToolOrgFactory()
+        endpoint = self._get_detail_endpoint(self.org.short_name, tool_org.tool.pk)
+
+        resp = self.request(client, "delete", endpoint, token=admin_token)
+
+        assert resp.json() == {"detail": "Not found."}
+        assert resp.status_code == 404
 
     @pytest.mark.skip
     def test_detail_returns_200(self, client, admin_token):
