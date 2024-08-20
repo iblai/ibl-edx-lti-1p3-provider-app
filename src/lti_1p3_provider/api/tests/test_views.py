@@ -183,3 +183,5 @@ class TestLtiKeyViews:
             "id": key.id,
         }
         assert resp.status_code == 200
+        key.refresh_from_db()
+        assert key.name == f"{org.short_name}-new-name"
