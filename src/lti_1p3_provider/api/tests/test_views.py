@@ -282,39 +282,59 @@ class TestLtiToolViews(BaseView):
 
     def test_create_returns_201(self, client, admin_token):
         """Test creating a tool for an org returns a 201"""
-        payload = {
-            "title": "test",
-            "is_active": True,
-            "issuer": "https://issuer.local",
-            "client_id": "12345",
-            "use_by_default": False,
-            "auth_login_url": "https://issuer.local/auth",
-            "auth_token_url": "https://issuer.local/token",
-            "auth_audience": "",
-            "key_set_url": "https://issuer.local/keyset",
-            "key_set": "",
-            "tool_key": self.key.id,
-            "deployment_ids": [1, "test", 1234, "5"],
-        }
         endpoint = self._get_list_endpoint(self.org.short_name)
 
-        resp = self.request(client, "post", endpoint, data=payload, token=admin_token)
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
 
         tool = LtiTool.objects.get(client_id="12345")
-        expected = payload.copy()
+        expected = self.payload.copy()
         expected["id"] = tool.id
-        expected["deployment_ids"] = [str(x) for x in payload["deployment_ids"]]
+        expected["deployment_ids"] = [str(x) for x in self.payload["deployment_ids"]]
         assert resp.json() == expected
         assert tool.tool_org.org == self.org
 
-    @pytest.mark.skip
     def test_create_org_dne_returns_400(self, client, admin_token):
         """Test creating key for org that DNE returns 400"""
         endpoint = self._get_list_endpoint("dne")
 
-        resp = self.request(client, "post", endpoint, data=payload, token=admin_token)
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
 
         assert resp.json() == {"non_field_errors": ["Org: 'dne' Does Not Exist"]}
+        assert resp.status_code == 400
+
+    def test_create_tool_key_dne_returns_400(self, client, admin_token):
+        """If key DNE, 400 is returned"""
+        bad_id = self.key.id + 1000
+        endpoint = self._get_list_endpoint(self.org.short_name)
+        self.payload["tool_key"] = bad_id
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.json() == {
+            "tool_key": [f'Invalid pk "{bad_id}" - object does not exist.']
+        }
+        assert resp.status_code == 400
+
+    def test_create_tool_key_in_other_org_returns_400(self, client, admin_token):
+        """If trying to use a key that doesn't belong to your org, 400 is returned"""
+        new_key_org = factories.LtiKeyOrgFactory()
+        endpoint = self._get_list_endpoint(self.org.short_name)
+        # This key belongs to a different org
+        self.payload["tool_key"] = new_key_org.key.id
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.json() == {
+            "tool_key": [f'Invalid pk "{new_key_org.key.id}" - object does not exist.']
+        }
         assert resp.status_code == 400
 
     @pytest.mark.skip
