@@ -36,17 +36,3 @@ def priv_to_public_key_pem(private_key: str):
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
     )
     return public_key_pem.decode("utf-8")
-
-
-def is_valid_private_key(private_key: str) -> bool:
-    """Return True if this is a valid private key in PEM format"""
-    try:
-        serialization.load_pem_private_key(
-            private_key.encode("utf-8"),
-            password=None,
-        )
-    except Exception as e:
-        log.warning("Invalid Private Key: %s", e)
-        return False
-
-    return True

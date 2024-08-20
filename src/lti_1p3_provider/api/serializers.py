@@ -21,12 +21,6 @@ class LtiToolKeySerializer(serializers.ModelSerializer):
     public_key = serializers.CharField(read_only=True)
     public_jwk = serializers.JSONField(read_only=True)
 
-    def validate_private_key(self, value: str) -> str:
-        """Check if the private key is valid"""
-        if not ssl_services.is_valid_private_key(value):
-            raise serializers.ValidationError("Invalid private key format")
-        return value
-
     def validate(self, attrs):
         short_name = self.context["org_short_name"]
         try:
@@ -51,8 +45,8 @@ class LtiToolKeySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         """Autogenerate private/public key pairs"""
-        # Since name is unique, we'll prepend the org short code to prevent collisions
-        # between clients
+        # Since name is unique, we'll prepend the org short code (Also unique) to
+        # prevent collisions between clients
         name = validated_data["name"]
         validated_data["name"] = f"{self.context['org_short_name']}-{name}"
 
@@ -88,6 +82,8 @@ class LtiToolSerializer(serializers.ModelSerializer):
         try:
             # Since we're validating it we may as well store it
             attrs["org"] = Organization.objects.get(short_name=short_name)
+        # NOTE: This may not be possible since if org DNE, then primary related
+        # field for tool_key fails first since all validate_<obj>'s are called first
         except Organization.DoesNotExist:
             raise serializers.ValidationError(f"Org: '{short_name}' Does Not Exist")
 
