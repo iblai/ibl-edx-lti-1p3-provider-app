@@ -76,6 +76,13 @@ class LtiToolSerializer(serializers.ModelSerializer):
 
     deployment_ids = StringListField()
 
+    def __init__(self, instance=None, data=..., **kwargs):
+        super().__init__(instance, data, **kwargs)
+        # NOTE: Restrict the tool_key querset to keys part of current org
+        self.fields["tool_key"].queryset = LtiToolKey.objects.filter(
+            key_org__org__short_name=self.context["org_short_name"]
+        )
+
     def validate(self, attrs):
         short_name = self.context["org_short_name"]
         try:
