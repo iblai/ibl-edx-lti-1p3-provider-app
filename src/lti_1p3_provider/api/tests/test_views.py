@@ -292,9 +292,15 @@ class TestLtiToolViews(BaseView):
             "deployment_ids": [1, "test", 1234, "5"],
         }
 
-    def test_create_returns_201(self, client, admin_token):
-        """Test creating a tool for an org returns a 201"""
+    @pytest.mark.parametrize("pop_key_field", ("key_set_url", "key_set"))
+    def test_create_returns_201(self, pop_key_field, client, admin_token):
+        """Test creating a tool for an org returns a 201
+
+        Allows missing either key_set or key_set_url
+        """
         endpoint = self._get_list_endpoint(self.org.short_name)
+        self.payload["key_set"] = factories.TOOL_JWK
+        self.payload.pop(pop_key_field)
 
         resp = self.request(
             client, "post", endpoint, data=self.payload, token=admin_token
@@ -303,9 +309,51 @@ class TestLtiToolViews(BaseView):
         tool = LtiTool.objects.get(client_id="12345")
         expected = self.payload.copy()
         expected["id"] = tool.id
+        expected[pop_key_field] = None
         expected["deployment_ids"] = [str(x) for x in self.payload["deployment_ids"]]
         assert resp.json() == expected
         assert tool.tool_org.org == self.org
+
+    def test_create_using_non_supplied_defaults_returns_201_with_defaults_set(
+        self, client, admin_token
+    ):
+        """If default values are not supplied, still works and sets as defaults"""
+        endpoint = self._get_list_endpoint(self.org.short_name)
+        expected = self.payload.copy()
+        self.payload.pop("is_active")
+        self.payload.pop("use_by_default")
+        self.payload.pop("auth_audience")
+        self.payload.pop("key_set")
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.status_code == 201, resp.json()
+        tool = LtiTool.objects.get(client_id="12345")
+        expected["id"] = tool.id
+        expected["auth_audience"] = None
+        expected["key_set"] = None
+        expected["deployment_ids"] = [str(x) for x in self.payload["deployment_ids"]]
+        assert resp.json() == expected
+        assert tool.tool_org.org == self.org
+
+    def test_create_missing_both_key_set_and_key_set_url_returns_400(
+        self, client, admin_token
+    ):
+        """Test missing key_set_url and key_set returns 400"""
+        endpoint = self._get_list_endpoint(self.org.short_name)
+        self.payload.pop("key_set_url")
+        self.payload.pop("key_set")
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.json() == {
+            "non_field_errors": ["Either key_set_url or key_set must be supplied"]
+        }
+        assert resp.status_code == 400
 
     def test_create_org_dne_returns_400(self, client, admin_token):
         """Test creating key for org that DNE returns 400"""

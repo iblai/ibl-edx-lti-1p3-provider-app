@@ -102,6 +102,15 @@ XWjoGwwEdjk7msSR3+kz/b3y3Um3vAvn52fSMXftM6QLqXeJjORZGV4P4enkOn6z
 NwIDAQAB
 -----END PUBLIC KEY-----"""
 
+TOOL_JWK = """{
+"e": "AQAB",
+"kid": "jXP35eITx7VUS9VzgGyrKdny2iktEvc_Aqow7u2EHes",
+"kty": "RSA",
+"n": "5lRsGSwUcHgT-ZQi7WTpnNrRAg1X2vvFPhWjmdXb_4Dk1vP4eYYZBFi6FzSfdNpnoOJJz1ibxcb-VooTSRvHDT58SBPiGqZ3tQHhhJkHNDfP2BJxhHFUyfBhT57q9g5-LvvH38ViC-maC6hiBfdVXcarPjQTfBt59tRwwmqOA0oG3dN7pDn9_eKWsaCZec9T6O2mMxpdsKbpHvO9Hoz6urK-nR-59d4Bpfp-p4JJa33Ulx2a-mWA025CJKB7tSa1RPIP44ROlkaGlWK2QZLnwFv7LmNEeEfF2p7eABtBZkQZ-_2quVUbl-pW8Fo1snG1xJVc8i53QO2ySnIwOu_xTQ",
+"alg": "RS256",
+"use": "sig"
+}"""
+
 
 class OidcLoginFactory(factory.DictFactory):
     """Query params for an 3rd party launch"""
