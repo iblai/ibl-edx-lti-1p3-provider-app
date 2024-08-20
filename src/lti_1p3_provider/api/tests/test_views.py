@@ -337,17 +337,23 @@ class TestLtiToolViews(BaseView):
         }
         assert resp.status_code == 400
 
-    @pytest.mark.skip
-    def test_create_name_already_exists_in_org_returns_400(self, client, admin_token):
-        """Test creating a tool name that already exists in org returns 400"""
-        org1 = OrganizationFactory()
-        factories.LtiToolKeyFactory(name=f"{org1.short_name}-test")
-        payload = {"name": "test"}
-        endpoint = self._get_list_endpoint(org1.short_name)
+    def test_create_issuer_and_client_id_already_exists_returns_400(
+        self, client, admin_token
+    ):
+        """Test creating tool if issuer/client_id already exists fails with 400"""
+        tool_org = factories.LtiToolOrgFactory()
+        tool = tool_org.tool
+        endpoint = self._get_list_endpoint(self.org.short_name)
+        self.payload["issuer"] = tool.issuer
+        self.payload["client_id"] = tool.client_id
 
-        resp = self.request(client, "post", endpoint, data=payload, token=admin_token)
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
 
-        assert resp.json() == ["Tool name: 'test' already exists"]
+        assert resp.json() == {
+            "non_field_errors": ["The fields issuer, client_id must make a unique set."]
+        }
         assert resp.status_code == 400
 
     @pytest.mark.skip
