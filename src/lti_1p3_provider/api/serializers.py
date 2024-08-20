@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from django.db import IntegrityError
 from organizations.models import Organization
+from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
 from rest_framework import serializers
 
-from ..models import LtiKeyOrg, LtiToolKey
+from ..models import LtiKeyOrg, LtiToolOrg
 from . import ssl_services
+
+
+class StringListField(serializers.ListField):
+    child = serializers.CharField()
 
 
 class LtiToolKeySerializer(serializers.ModelSerializer):
@@ -62,3 +67,32 @@ class LtiToolKeySerializer(serializers.ModelSerializer):
         except IntegrityError:
             raise serializers.ValidationError(f"Tool name: '{name}' already exists")
         return tool_key
+
+
+class LtiToolSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LtiTool
+        fields = "__all__"
+
+    deployment_ids = StringListField()
+
+    def validate(self, attrs):
+        short_name = self.context["org_short_name"]
+        try:
+            # Since we're validating it we may as well store it
+            attrs["org"] = Organization.objects.get(short_name=short_name)
+        except Organization.DoesNotExist:
+            raise serializers.ValidationError(f"Org: '{short_name}' Does Not Exist")
+
+        return super().validate(attrs)
+
+    def create(self, validated_data):
+        lti_org = validated_data.pop("org")
+        try:
+            tool = super().create(validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError(
+                "Issuer and client combination already exists"
+            )
+        LtiToolOrg.objects.create(tool=tool, org=lti_org)
+        return tool
