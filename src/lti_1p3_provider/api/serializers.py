@@ -32,9 +32,17 @@ class LtiToolKeySerializer(serializers.ModelSerializer):
 
         return super().validate(attrs)
 
+    def to_representation(self, instance):
+        """Remove the `{org.short_name}-` prefix for name field"""
+        rep = super().to_representation(instance)
+        org = instance.key_org.org.short_name
+        rep["name"] = rep["name"].replace(f"{org}-", "", 1)
+        return rep
+
     def create(self, validated_data):
         """Autogenerate private/public key pairs"""
         # Since name is unique, we'll prepend the org short code to prevent collisions
+        # between clients
         name = validated_data["name"]
         validated_data["name"] = f"{self.context['org_short_name']}-{name}"
 
