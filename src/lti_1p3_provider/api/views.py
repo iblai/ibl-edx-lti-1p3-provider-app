@@ -1,5 +1,5 @@
 from django.utils.decorators import method_decorator
-from openedx.core.lib.api.authentication import BearerAuthenticationAllowInactiveUser
+from openedx.core.lib.api.authentication import BearerAuthentication
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiToolKey
 from rest_framework.permissions import IsAdminUser
 from rest_framework.viewsets import ModelViewSet
@@ -11,7 +11,7 @@ from .serializers import LtiToolKeySerializer
 @method_decorator(requires_lti_enabled, name="dispatch")
 class LtiKeyViewSet(ModelViewSet):
     serializer_class = LtiToolKeySerializer
-    authentication_classes = [BearerAuthenticationAllowInactiveUser]
+    authentication_classes = [BearerAuthentication]
     permission_classes = [IsAdminUser]
 
     def get_queryset(self):
