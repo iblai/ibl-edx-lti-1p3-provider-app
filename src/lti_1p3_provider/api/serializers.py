@@ -39,6 +39,11 @@ class LtiToolKeySerializer(serializers.ModelSerializer):
         rep["name"] = rep["name"].replace(f"{org}-", "", 1)
         return rep
 
+    def update(self, instance, validated_data):
+        name = validated_data["name"]
+        validated_data["name"] = f"{self.context['org_short_name']}-{name}"
+        return super().update(instance, validated_data)
+
     def create(self, validated_data):
         """Autogenerate private/public key pairs"""
         # Since name is unique, we'll prepend the org short code to prevent collisions
