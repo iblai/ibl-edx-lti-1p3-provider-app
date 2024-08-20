@@ -87,6 +87,11 @@ class LtiToolSerializer(serializers.ModelSerializer):
         except Organization.DoesNotExist:
             raise serializers.ValidationError(f"Org: '{short_name}' Does Not Exist")
 
+        if not (attrs.get("key_set_url", None) or attrs.get("key_set", None)):
+            raise serializers.ValidationError(
+                "Either key_set_url or key_set must be supplied"
+            )
+
         return attrs
 
     def create(self, validated_data):
