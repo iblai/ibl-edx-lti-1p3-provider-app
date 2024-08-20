@@ -51,7 +51,7 @@ class TestLtiKeyViews:
         assert resp.json() == {
             "public_key": key.public_key,
             "public_jwk": key.public_jwk,
-            "name": key.name,
+            "name": "test",
             "id": key.id,
         }
 
@@ -79,13 +79,23 @@ class TestLtiKeyViews:
 
     def test_list_returns_keys_for_specified_org_only(self, client):
         """Test returns LtiKeys for specified org only"""
-        key1_org1 = factories.LtiKeyOrgFactory()
-        key2_org1 = factories.LtiKeyOrgFactory(org=key1_org1.org)
+        org1 = OrganizationFactory()
+        org2 = OrganizationFactory()
+        key1_org1 = factories.LtiKeyOrgFactory(
+            org=org1, key__name=f"{org1.short_name}-key-1"
+        )
+        key2_org1 = factories.LtiKeyOrgFactory(
+            org=org1, key__name=f"{org1.short_name}-key-2"
+        )
         endpoint = self._get_list_endpoint(key1_org1.org.short_name)
 
         # These won't be returned
-        key1_org2 = factories.LtiKeyOrgFactory()
-        key2_org2 = factories.LtiKeyOrgFactory(org=key1_org2.org)
+        key1_org2 = factories.LtiKeyOrgFactory(
+            org=org2, key__name=f"{org2.short_name}-key-1"
+        )
+        key2_org2 = factories.LtiKeyOrgFactory(
+            org=org2, key__name=f"{org2.short_name}-key-2"
+        )
 
         resp = client.get(endpoint)
 
@@ -94,13 +104,13 @@ class TestLtiKeyViews:
         key2 = key2_org1.key
         assert data == [
             {
-                "name": key1.name,
+                "name": "key-1",
                 "public_key": key1.public_key,
                 "public_jwk": key1.public_jwk,
                 "id": key1.id,
             },
             {
-                "name": key2.name,
+                "name": "key-2",
                 "public_key": key2.public_key,
                 "public_jwk": key2.public_jwk,
                 "id": key2.id,
@@ -135,7 +145,10 @@ class TestLtiKeyViews:
 
     def test_detail_endpoint_returns_200(self, client):
         """Detail endpoint returns entity"""
-        key_org = factories.LtiKeyOrgFactory()
+        org = OrganizationFactory()
+        key_org = factories.LtiKeyOrgFactory(
+            org=org, key__name=f"{org.short_name}-test"
+        )
         org = key_org.org
         key = key_org.key
         endpoint = self._get_detail_endpoint(org.short_name, key.pk)
@@ -143,7 +156,7 @@ class TestLtiKeyViews:
         resp = client.get(endpoint)
 
         assert resp.json() == {
-            "name": key.name,
+            "name": "test",
             "public_key": key.public_key,
             "public_jwk": key.public_jwk,
             "id": key.id,
