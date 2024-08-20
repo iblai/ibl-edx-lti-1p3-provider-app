@@ -356,68 +356,27 @@ class TestLtiToolViews(BaseView):
         }
         assert resp.status_code == 400
 
-    @pytest.mark.skip
-    def test_create_same_name_in_multiple_orgs_succeeds_200(self, client, admin_token):
-        """Multiple orgs can create tokens with the same name from their perspective"""
-        org1 = OrganizationFactory()
-        org2 = OrganizationFactory()
-        payload = {"name": "test"}
-        endpoint1 = self._get_list_endpoint(org1.short_name)
-        endpoint2 = self._get_list_endpoint(org2.short_name)
-
-        resp1 = self.request(client, "post", endpoint1, data=payload, token=admin_token)
-        resp2 = self.request(client, "post", endpoint2, data=payload, token=admin_token)
-
-        assert resp1.status_code == 201
-        assert resp2.status_code == 201
-
-        key1 = LtiKeyOrg.objects.get(org=org1).key
-        assert key1.name == f"{org1.short_name}-test"
-        key2 = LtiKeyOrg.objects.get(org=org2).key
-        assert key2.name == f"{org2.short_name}-test"
-
-    @pytest.mark.skip
-    def test_list_returns_keys_for_specified_org_only(self, client, admin_token):
+    def test_list_returns_tools_for_specified_org_only_200(self, client, admin_token):
         """Test returns LtiKeys for specified org only"""
         org1 = OrganizationFactory()
         org2 = OrganizationFactory()
-        key1_org1 = factories.LtiKeyOrgFactory(
-            org=org1, key__name=f"{org1.short_name}-key-1"
-        )
-        key2_org1 = factories.LtiKeyOrgFactory(
-            org=org1, key__name=f"{org1.short_name}-key-2"
-        )
-        endpoint = self._get_list_endpoint(key1_org1.org.short_name)
+        tool1_org1 = factories.LtiToolOrgFactory(org=org1)
+        tool2_org1 = factories.LtiToolOrgFactory(org=org1)
+        endpoint = self._get_list_endpoint(tool1_org1.org.short_name)
 
         # These won't be returned
-        key1_org2 = factories.LtiKeyOrgFactory(
-            org=org2, key__name=f"{org2.short_name}-key-1"
-        )
-        key2_org2 = factories.LtiKeyOrgFactory(
-            org=org2, key__name=f"{org2.short_name}-key-2"
-        )
+        tool1_org2 = factories.LtiToolOrgFactory(org=org2)
+        tool2_org2 = factories.LtiToolOrgFactory(org=org2)
+        tool3_org2 = factories.LtiToolOrgFactory(org=org2)
 
         resp = self.request(client, "get", endpoint, token=admin_token)
 
-        data = resp.json()["results"]
-
-        key1 = key1_org1.key
-        key2 = key2_org1.key
-        assert data == [
-            {
-                "name": "key-1",
-                "public_key": key1.public_key,
-                "public_jwk": key1.public_jwk,
-                "id": key1.id,
-            },
-            {
-                "name": "key-2",
-                "public_key": key2.public_key,
-                "public_jwk": key2.public_jwk,
-                "id": key2.id,
-            },
-        ]
-        assert resp.status_code == 200
+        assert resp.status_code == 200, resp.json()
+        data = resp.json()
+        assert data["count"] == 2
+        ids_returned = set([x["id"] for x in data["results"]])
+        expected_ids = set([tool1_org1.tool.id, tool2_org1.tool.id])
+        assert ids_returned == expected_ids
 
     @pytest.mark.skip
     def test_list_org_dne_returns_empty_list_with_200(self, client, admin_token):
