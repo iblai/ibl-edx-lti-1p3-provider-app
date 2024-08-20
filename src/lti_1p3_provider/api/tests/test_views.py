@@ -425,47 +425,55 @@ class TestLtiToolViews(BaseView):
         assert resp.json() == {"detail": "Not found."}
         assert resp.status_code == 404
 
-    @pytest.mark.skip
     def test_detail_returns_200(self, client, admin_token):
         """Detail endpoint returns entity"""
         org = OrganizationFactory()
-        key_org = factories.LtiKeyOrgFactory(
-            org=org, key__name=f"{org.short_name}-test"
-        )
-        org = key_org.org
-        key = key_org.key
-        endpoint = self._get_detail_endpoint(org.short_name, key.pk)
+        tool_org = factories.LtiToolOrgFactory(org=org)
+        tool = tool_org.tool
+        org = tool_org.org
+        endpoint = self._get_detail_endpoint(org.short_name, tool.pk)
 
         resp = self.request(client, "get", endpoint, token=admin_token)
 
-        assert resp.json() == {
-            "name": "test",
-            "public_key": key.public_key,
-            "public_jwk": key.public_jwk,
-            "id": key.id,
-        }
-        assert resp.status_code == 200
+        assert resp.status_code == 200, resp.json()
+        assert resp.json()["id"] == tool.id
 
-    @pytest.mark.skip
     def test_update_returns_200(self, client, admin_token):
-        """Update updates name and returns 200"""
+        """Update updates entity and returns 200"""
         org = OrganizationFactory()
-        key_org = factories.LtiKeyOrgFactory(
-            org=org, key__name=f"{org.short_name}-test"
-        )
+        key_org = factories.LtiToolOrgFactory(org=org, tool__tool_key=self.key)
+        new_key = factories.LtiKeyOrgFactory(org=org)
         org = key_org.org
-        key = key_org.key
-        endpoint = self._get_detail_endpoint(org.short_name, key.pk)
-        payload = {"name": "new-name"}
+        tool = key_org.tool
+        endpoint = self._get_detail_endpoint(org.short_name, tool.pk)
+        self.payload["tool_key"] = new_key.key.id
 
-        resp = self.request(client, "put", endpoint, data=payload, token=admin_token)
+        resp = self.request(
+            client, "put", endpoint, data=self.payload, token=admin_token
+        )
 
-        assert resp.json() == {
-            "name": "new-name",
-            "public_key": key.public_key,
-            "public_jwk": key.public_jwk,
-            "id": key.id,
-        }
+        expected = self.payload.copy()
+        expected["id"] = tool.id
+        expected["deployment_ids"] = [str(x) for x in self.payload["deployment_ids"]]
+        assert resp.json() == expected
         assert resp.status_code == 200
-        key.refresh_from_db()
-        assert key.name == f"{org.short_name}-new-name"
+
+    def test_update_with_tool_key_from_other_org_returns_400(self, client, admin_token):
+        """Update updates entity and returns 200"""
+        org = OrganizationFactory()
+        org2 = OrganizationFactory()
+        key_org = factories.LtiToolOrgFactory(org=org, tool__tool_key=self.key)
+        new_key = factories.LtiKeyOrgFactory(org=org2)
+        org = key_org.org
+        tool = key_org.tool
+        endpoint = self._get_detail_endpoint(org.short_name, tool.pk)
+        self.payload["tool_key"] = new_key.key.id
+
+        resp = self.request(
+            client, "put", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.status_code == 400, resp.json()
+        assert resp.json() == {
+            "tool_key": [f'Invalid pk "{new_key.key.id}" - object does not exist.']
+        }
