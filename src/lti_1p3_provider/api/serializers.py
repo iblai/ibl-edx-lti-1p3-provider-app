@@ -188,9 +188,9 @@ class LtiToolSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         lti_org = validated_data.pop("org")
-        launch_gate = validated_data.pop("launch_gate", {})
+        launch_gate_data = validated_data.pop("launch_gate", {})
         tool = LtiTool.objects.create(**validated_data)
         LtiToolOrg.objects.create(tool=tool, org=lti_org)
-        if launch_gate:
-            LaunchGate.objects.create(tool=tool, **launch_gate)
+        if launch_gate_data:
+            LaunchGate.objects.create(tool=tool, **launch_gate_data)
         return tool
