@@ -564,6 +564,29 @@ class TestLtiToolViews(BaseView):
         assert resp.json() == expected
         assert resp.status_code == 200
 
+    def test_update_with_no_launch_gate_returns_200(self, client, admin_token):
+        """Update updates entity and returns 200"""
+        org = OrganizationFactory()
+        key_org = factories.LtiToolOrgFactory(org=org, tool__tool_key=self.key)
+        new_key = factories.LtiKeyOrgFactory(org=org)
+        org = key_org.org
+        tool = key_org.tool
+        endpoint = self._get_detail_endpoint(org.short_name, tool.pk)
+        self.payload["tool_key"] = new_key.key.id
+        factories.LaunchGateFactory(tool=tool, **self.payload["launch_gate"])
+        launch_gate_data = self.payload.pop("launch_gate")
+
+        resp = self.request(
+            client, "put", endpoint, data=self.payload, token=admin_token
+        )
+
+        expected = self.payload.copy()
+        expected["id"] = tool.id
+        expected["launch_gate"] = launch_gate_data
+        expected["deployment_ids"] = [str(x) for x in self.payload["deployment_ids"]]
+        assert resp.json() == expected
+        assert resp.status_code == 200
+
     def test_update_launch_gate_returns_200(self, client, admin_token):
         """Update updates launch_gate and returns 200"""
         org = OrganizationFactory()
