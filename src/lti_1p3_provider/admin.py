@@ -46,7 +46,7 @@ class LtiGradedResourceAdmin(admin.ModelAdmin):
 
 
 @admin.register(models.LtiToolOrg)
-class LtiTooLOrgAdmin(admin.ModelAdmin):
+class LtiToolOrgAdmin(admin.ModelAdmin):
     list_display = ("tool_name", "tool_issuer", "tool_client_id", "edx_org_name")
 
     def tool_name(self, obj) -> str:
@@ -67,3 +67,8 @@ class LtiTooLOrgAdmin(admin.ModelAdmin):
         if db_field.name == "tool":
             formfield.label_from_instance = lambda obj: f"{obj.title} ({obj.client_id})"
         return formfield
+
+
+@admin.register(models.LtiKeyOrg)
+class LtiKeyOrgAdmin(admin.ModelAdmin):
+    list_display = ("key", "org")
