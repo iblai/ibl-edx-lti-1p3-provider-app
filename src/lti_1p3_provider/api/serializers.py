@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.db import IntegrityError
+from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from openedx.core.lib.api.serializers import CourseKeyField, UsageKeyField
 from organizations.models import Organization
@@ -65,59 +66,73 @@ class LtiToolKeySerializer(serializers.ModelSerializer):
         return tool_key
 
 
-def course_key_validator(value):
-    """Raise ValidationError if not a valid Course Key"""
-    for key in value:
-        try:
-            CourseKey.from_string(key)
-        except Exception:
-            raise serializers.ValidationError(
-                "Invalid Course Key. Format is: course-v1:<org>+<course>+<run>"
-            )
-
-
-def usage_key_validator(value):
-    """Raise ValidationError if not a valid Usage Key"""
-    for key in value:
-        try:
-            UsageKey.from_string(key)
-        except Exception:
-            raise serializers.ValidationError(
-                "Invalid Usage Key. Format is: "
-                "block-v1:<org>+<course>+<run>+type@<block_type>+block@<hex_uuid>"
-            )
-
-
 class LaunchGateSerializer(serializers.ModelSerializer):
     class Meta:
         model = LaunchGate
-        fields = ["allowed_keys", "allowed_courses", "allowed_orgs"]
+        fields = ["allowed_keys", "allowed_courses", "allow_all_within_org"]
 
     allowed_keys = StringListField(
         allow_empty=True,
-        required=False,
         default=lambda: [],
-        validators=[usage_key_validator],
     )
     allowed_courses = StringListField(
         allow_empty=True,
-        required=False,
         default=lambda: [],
-        validators=[course_key_validator],
     )
-    allowed_orgs = StringListField(allow_empty=True, required=False, default=lambda: [])
+    allow_all_within_org = serializers.BooleanField(
+        default=False,
+        help_text="If True, a target_link_uri will work with any content within this org",
+    )
 
     def validate(self, attrs):
-        """Ensure at least one of allowed_* is set"""
+        """Ensure at least one of allow* is set"""
         if not (
-            attrs.get("allowed_keys")
-            or attrs.get("allowed_courses")
-            or attrs.get("allowed_orgs")
+            attrs["allowed_keys"]
+            or attrs["allowed_courses"]
+            or attrs["allow_all_within_org"]
         ):
             raise serializers.ValidationError(
-                "Must set one of: allowed_keys, allowed_courses, allowed_orgs"
+                "Set either allow_all_within_org or one or more of allowed_courses/allowed_keys"
             )
         return attrs
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep["allow_all_within_org"] = instance.allowed_orgs == [
+            self.context["org_short_name"]
+        ]
+        return rep
+
+    def validate_allowed_courses(self, value):
+        for key in value:
+            try:
+                key = CourseKey.from_string(key)
+                org_short_name = self.context["org_short_name"]
+                if key.org != org_short_name:
+                    raise serializers.ValidationError(
+                        f"Course Key must be within org: {org_short_name}"
+                    )
+            except InvalidKeyError:
+                raise serializers.ValidationError(
+                    "Invalid Course Key. Format is: course-v1:<org>+<course>+<run>"
+                )
+        return value
+
+    def validate_allowed_keys(self, value):
+        for key in value:
+            try:
+                key = UsageKey.from_string(key)
+                org_short_name = self.context["org_short_name"]
+                if key.course_key.org != org_short_name:
+                    raise serializers.ValidationError(
+                        f"Usage Key must be within org: {org_short_name}"
+                    )
+            except InvalidKeyError:
+                raise serializers.ValidationError(
+                    "Invalid Usage Key. Format is: "
+                    "block-v1:<org>+<course>+<run>+type@<block_type>+block@<hex_uuid>"
+                )
+        return value
 
 
 class LtiToolSerializer(serializers.ModelSerializer):
@@ -141,7 +156,7 @@ class LtiToolSerializer(serializers.ModelSerializer):
         ]
 
     deployment_ids = StringListField()
-    launch_gate = LaunchGateSerializer(required=False)
+    launch_gate = LaunchGateSerializer()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -152,6 +167,12 @@ class LtiToolSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         short_name = self.context["org_short_name"]
+        # Since this endpoint is for an org, allowed_orgs must be [] or their org only
+        allow_all_within_org = attrs["launch_gate"].pop("allow_all_within_org")
+        attrs["launch_gate"]["allowed_orgs"] = (
+            [short_name] if allow_all_within_org else []
+        )
+
         try:
             # Since we're validating it we may as well store it
             attrs["org"] = Organization.objects.get(short_name=short_name)
@@ -169,28 +190,24 @@ class LtiToolSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         """Update object and launch gate, creating launch gate if necessary"""
-        launch_gate_data = validated_data.pop("launch_gate", {})
+        # Update LtiTool object
+        launch_gate_data = validated_data.pop("launch_gate")
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
-        if not launch_gate_data:
-            return instance
 
-        launch_gate = getattr(instance, "launch_gate", None)
-        if launch_gate:
-            for attr, value in launch_gate_data.items():
-                setattr(launch_gate, attr, value)
-            launch_gate.save()
-        else:
-            LaunchGate.objects.create(tool=instance, **launch_gate_data)
+        # Update LaunchGate
+        launch_gate = instance.launch_gate
+        for attr, value in launch_gate_data.items():
+            setattr(launch_gate, attr, value)
+        launch_gate.save()
 
         return instance
 
     def create(self, validated_data):
         lti_org = validated_data.pop("org")
-        launch_gate_data = validated_data.pop("launch_gate", {})
+        launch_gate_data = validated_data.pop("launch_gate")
         tool = LtiTool.objects.create(**validated_data)
         LtiToolOrg.objects.create(tool=tool, org=lti_org)
-        if launch_gate_data:
-            LaunchGate.objects.create(tool=tool, **launch_gate_data)
+        LaunchGate.objects.create(tool=tool, **launch_gate_data)
         return tool
