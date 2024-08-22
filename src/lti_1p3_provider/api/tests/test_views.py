@@ -290,6 +290,11 @@ class TestLtiToolViews(BaseView):
             "key_set": "",
             "tool_key": self.key.id,
             "deployment_ids": [1, "test", 1234, "5"],
+            "launch_gate": {
+                "allowed_keys": ["block-v1:org+course+run+type@obj+block@uuid"],
+                "allowed_courses": ["course-v1:org+course+run"],
+                "allowed_orgs": ["one"],
+            },
         }
 
     @pytest.mark.parametrize("pop_key_field", ("key_set_url", "key_set"))
