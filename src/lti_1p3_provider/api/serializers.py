@@ -107,6 +107,18 @@ class LaunchGateSerializer(serializers.ModelSerializer):
     )
     allowed_orgs = StringListField(allow_empty=True, required=False, default=lambda: [])
 
+    def validate(self, attrs):
+        """Ensure at least one of allowed_* is set"""
+        if not (
+            attrs.get("allowed_keys")
+            or attrs.get("allowed_courses")
+            or attrs.get("allowed_orgs")
+        ):
+            raise serializers.ValidationError(
+                "Must set one of: allowed_keys, allowed_courses, allowed_orgs"
+            )
+        return attrs
+
 
 class LtiToolSerializer(serializers.ModelSerializer):
     class Meta:
@@ -128,7 +140,7 @@ class LtiToolSerializer(serializers.ModelSerializer):
             "launch_gate",
         ]
 
-    deployment_ids = serializers.ListField(child=serializers.CharField())
+    deployment_ids = StringListField()
     launch_gate = LaunchGateSerializer(required=False)
 
     def __init__(self, *args, **kwargs):
