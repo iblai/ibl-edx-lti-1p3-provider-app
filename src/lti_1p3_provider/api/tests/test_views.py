@@ -372,6 +372,43 @@ class TestLtiToolViews(BaseView):
             }
         }
 
+    def test_create_invalid_course_key_returns_400(self, client, admin_token):
+        """If course_key is invalid, returns 400"""
+        endpoint = self._get_list_endpoint(self.org.short_name)
+        self.payload["launch_gate"]["allowed_courses"] = ["bad-key"]
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.status_code == 400, resp.json()
+        assert resp.json() == {
+            "launch_gate": {
+                "allowed_courses": [
+                    "Invalid Course Key. Format is: course-v1:<org>+<course>+<run>"
+                ]
+            }
+        }
+
+    def test_create_invalid_usage_key_returns_400(self, client, admin_token):
+        """If usage_key is invalid, returns 400"""
+        endpoint = self._get_list_endpoint(self.org.short_name)
+        self.payload["launch_gate"]["allowed_keys"] = ["bad-key"]
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.status_code == 400, resp.json()
+        assert resp.json() == {
+            "launch_gate": {
+                "allowed_keys": [
+                    "Invalid Usage Key. Format is: "
+                    "block-v1:<org>+<course>+<run>+type@<block_type>+block@<hex_uuid>"
+                ]
+            }
+        }
+
     def test_create_using_non_supplied_defaults_returns_201_with_defaults_set(
         self, client, admin_token
     ):
