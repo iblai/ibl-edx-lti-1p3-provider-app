@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from django.db import IntegrityError
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
@@ -14,6 +16,27 @@ from . import ssl_services
 
 class StringListField(serializers.ListField):
     child = serializers.CharField()
+
+
+class TextBackedListField(StringListField):
+    """A ListField backed by a Char-Type field in the db
+
+    - Writes as a JSON String
+    - Reads object from a JSON string
+    """
+
+    def to_representation(self, data):
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except ValueError:
+                data = []
+        return super().to_representation(data)
+
+    def to_internal_value(self, data):
+        if data:
+            return json.dumps(data)
+        return "[]"
 
 
 class LtiToolKeySerializer(serializers.ModelSerializer):
@@ -155,7 +178,7 @@ class LtiToolSerializer(serializers.ModelSerializer):
             "launch_gate",
         ]
 
-    deployment_ids = StringListField()
+    deployment_ids = TextBackedListField()
     launch_gate = LaunchGateSerializer()
 
     def __init__(self, *args, **kwargs):
