@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 import pytest
@@ -114,7 +115,7 @@ class TestLtiKeyViews(BaseView):
 
         resp = self.request(client, "post", endpoint, data=payload, token=admin_token)
 
-        assert resp.json() == ["Tool name: 'test' already exists"]
+        assert resp.json() == ["Key name: 'test' already exists"]
         assert resp.status_code == 400
 
     def test_create_same_name_in_multiple_orgs_succeeds_200(self, client, admin_token):
@@ -235,6 +236,24 @@ class TestLtiKeyViews(BaseView):
         }
         assert resp.status_code == 200
 
+    def test_update_key_name_already_exists_returns_400(self, client, admin_token):
+        """Test updating a tool name that already exists in org returns 400"""
+        org1 = OrganizationFactory()
+        org_key1 = factories.LtiKeyOrgFactory(
+            org=org1, key__name=f"{org1.short_name}-test1"
+        )
+        org_key = factories.LtiKeyOrgFactory(
+            org=org1, key__name=f"{org1.short_name}-test"
+        )
+        # try to rename it to test which is already taken in this org
+        payload = {"name": "test1"}
+        endpoint = self._get_detail_endpoint(org1.short_name, org_key.key.id)
+
+        resp = self.request(client, "put", endpoint, data=payload, token=admin_token)
+
+        assert resp.json() == ["Key name: 'test1' already exists"]
+        assert resp.status_code == 400
+
     def test_update_returns_200(self, client, admin_token):
         """Update updates name and returns 200"""
         org = OrganizationFactory()
@@ -282,7 +301,6 @@ class TestLtiToolViews(BaseView):
             "is_active": True,
             "issuer": "https://issuer.local",
             "client_id": "12345",
-            "use_by_default": False,
             "auth_login_url": "https://issuer.local/auth",
             "auth_token_url": "https://issuer.local/token",
             "auth_audience": "",
@@ -290,6 +308,13 @@ class TestLtiToolViews(BaseView):
             "key_set": "",
             "tool_key": self.key.id,
             "deployment_ids": [1, "test", 1234, "5"],
+            "launch_gate": {
+                "allowed_keys": [
+                    f"block-v1:{self.org.short_name}+course+run+type@obj+block@uuid"
+                ],
+                "allowed_courses": [f"course-v1:{self.org.short_name}+course+run"],
+                "allow_all_within_org": False,
+            },
         }
 
     @pytest.mark.parametrize("pop_key_field", ("key_set_url", "key_set"))
@@ -306,6 +331,7 @@ class TestLtiToolViews(BaseView):
             client, "post", endpoint, data=self.payload, token=admin_token
         )
 
+        assert resp.status_code == 201, resp.json()
         tool = LtiTool.objects.get(client_id="12345")
         expected = self.payload.copy()
         expected["id"] = tool.id
@@ -313,6 +339,51 @@ class TestLtiToolViews(BaseView):
         expected["deployment_ids"] = [str(x) for x in self.payload["deployment_ids"]]
         assert resp.json() == expected
         assert tool.tool_org.org == self.org
+        # Validate launchg gate created
+        launch_gate = tool.launch_gate
+        assert launch_gate.allowed_keys == self.payload["launch_gate"]["allowed_keys"]
+        assert (
+            launch_gate.allowed_courses
+            == self.payload["launch_gate"]["allowed_courses"]
+        )
+        assert not launch_gate.allowed_orgs
+
+    def test_create_invalid_course_key_returns_400(self, client, admin_token):
+        """If course_key is invalid, returns 400"""
+        endpoint = self._get_list_endpoint(self.org.short_name)
+        self.payload["launch_gate"]["allowed_courses"] = ["bad-key"]
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.status_code == 400, resp.json()
+        assert resp.json() == {
+            "launch_gate": {
+                "allowed_courses": [
+                    "Invalid Course Key. Format is: course-v1:<org>+<course>+<run>"
+                ]
+            }
+        }
+
+    def test_create_invalid_usage_key_returns_400(self, client, admin_token):
+        """If usage_key is invalid, returns 400"""
+        endpoint = self._get_list_endpoint(self.org.short_name)
+        self.payload["launch_gate"]["allowed_keys"] = ["bad-key"]
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.status_code == 400, resp.json()
+        assert resp.json() == {
+            "launch_gate": {
+                "allowed_keys": [
+                    "Invalid Usage Key. Format is: "
+                    "block-v1:<org>+<course>+<run>+type@<block_type>+block@<hex_uuid>"
+                ]
+            }
+        }
 
     def test_create_using_non_supplied_defaults_returns_201_with_defaults_set(
         self, client, admin_token
@@ -321,7 +392,6 @@ class TestLtiToolViews(BaseView):
         endpoint = self._get_list_endpoint(self.org.short_name)
         expected = self.payload.copy()
         self.payload.pop("is_active")
-        self.payload.pop("use_by_default")
         self.payload.pop("auth_audience")
         self.payload.pop("key_set")
 
@@ -355,7 +425,7 @@ class TestLtiToolViews(BaseView):
         }
         assert resp.status_code == 400
 
-    def test_create_org_dne_returns_400(self, client, admin_token):
+    def test_create_if_org_dne_returns_400(self, client, admin_token):
         """Test creating key for org that DNE returns 400"""
         endpoint = self._get_list_endpoint("dne")
 
@@ -364,7 +434,41 @@ class TestLtiToolViews(BaseView):
         )
 
         assert resp.json() == {
-            "tool_key": [f'Invalid pk "{self.key.id}" - object does not exist.']
+            "tool_key": [f'Invalid pk "{self.key.id}" - object does not exist.'],
+            "launch_gate": {
+                "allowed_courses": ["Course Key must be within org: dne"],
+                "allowed_keys": ["Usage Key must be within org: dne"],
+            },
+        }
+        assert resp.status_code == 400
+
+    def test_create_if_launch_gate_courses_or_keys_not_in_org_returns_400(
+        self, client, admin_token
+    ):
+        """If launch gate courses/keys not within target org, 400 is returned"""
+        org1 = OrganizationFactory()
+        org2 = OrganizationFactory()
+        self.payload["launch_gate"]["allowed_courses"] = [
+            f"course-v1:{org1.short_name}+course+run"
+        ]
+        self.payload["launch_gate"]["allowed_keys"] = [
+            f"block-v1:{org2.short_name}+course+run+type@obj+block@uuid"
+        ]
+        endpoint = self._get_list_endpoint(self.org.short_name)
+
+        resp = self.request(
+            client, "post", endpoint, data=self.payload, token=admin_token
+        )
+
+        assert resp.json() == {
+            "launch_gate": {
+                "allowed_courses": [
+                    f"Course Key must be within org: {self.org.short_name}"
+                ],
+                "allowed_keys": [
+                    f"Usage Key must be within org: {self.org.short_name}"
+                ],
+            },
         }
         assert resp.status_code == 400
 
@@ -488,33 +592,40 @@ class TestLtiToolViews(BaseView):
 
     def test_update_returns_200(self, client, admin_token):
         """Update updates entity and returns 200"""
-        org = OrganizationFactory()
-        key_org = factories.LtiToolOrgFactory(org=org, tool__tool_key=self.key)
-        new_key = factories.LtiKeyOrgFactory(org=org)
-        org = key_org.org
+        key_org = factories.LtiToolOrgFactory(org=self.org, tool__tool_key=self.key)
+        new_key = factories.LtiKeyOrgFactory(org=self.org)
         tool = key_org.tool
-        endpoint = self._get_detail_endpoint(org.short_name, tool.pk)
+        existing_gate = factories.LaunchGateFactory(tool=tool)
+        endpoint = self._get_detail_endpoint(self.org.short_name, tool.pk)
         self.payload["tool_key"] = new_key.key.id
+        self.payload["launch_gate"]["allow_all_within_org"] = True
 
         resp = self.request(
             client, "put", endpoint, data=self.payload, token=admin_token
         )
 
-        expected = self.payload.copy()
+        expected = copy.deepcopy(self.payload)
         expected["id"] = tool.id
         expected["deployment_ids"] = [str(x) for x in self.payload["deployment_ids"]]
+
+        assert resp.status_code == 200, resp.json()
         assert resp.json() == expected
-        assert resp.status_code == 200
+        existing_gate.refresh_from_db()
+        assert existing_gate.allowed_keys == self.payload["launch_gate"]["allowed_keys"]
+        assert (
+            existing_gate.allowed_courses
+            == self.payload["launch_gate"]["allowed_courses"]
+        )
+        assert existing_gate.allowed_orgs == [self.org.short_name]
 
     def test_update_with_tool_key_from_other_org_returns_400(self, client, admin_token):
         """Update updates entity and returns 200"""
-        org = OrganizationFactory()
-        org2 = OrganizationFactory()
-        key_org = factories.LtiToolOrgFactory(org=org, tool__tool_key=self.key)
-        new_key = factories.LtiKeyOrgFactory(org=org2)
-        org = key_org.org
-        tool = key_org.tool
-        endpoint = self._get_detail_endpoint(org.short_name, tool.pk)
+        new_org = OrganizationFactory()
+        tool_org = factories.LtiToolOrgFactory(org=self.org, tool__tool_key=self.key)
+        new_key = factories.LtiKeyOrgFactory(org=new_org)
+        org = tool_org.org
+        tool = tool_org.tool
+        endpoint = self._get_detail_endpoint(self.org.short_name, tool.pk)
         self.payload["tool_key"] = new_key.key.id
 
         resp = self.request(
@@ -523,5 +634,5 @@ class TestLtiToolViews(BaseView):
 
         assert resp.status_code == 400, resp.json()
         assert resp.json() == {
-            "tool_key": [f'Invalid pk "{new_key.key.id}" - object does not exist.']
+            "tool_key": [f'Invalid pk "{new_key.key.id}" - object does not exist.'],
         }

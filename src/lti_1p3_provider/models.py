@@ -362,6 +362,11 @@ class LaunchGate(models.Model):
         help_text="Allows tool to access these specific UsageKeys",
         blank=True,
     )
+    allowed_courses = models.JSONField(
+        default=list,
+        help_text="Allows tool to access these specific CourseKey's",
+        blank=True,
+    )
     allowed_orgs = models.JSONField(
         default=list,
         help_text="Allows tools to access any content in these orgs",
@@ -371,16 +376,19 @@ class LaunchGate(models.Model):
     def can_access_key(self, usage_key: UsageKey) -> bool:
         """Return True if tool can access usage_key
 
-        This is evaluated as an OR of allowed_keys and allowed_orgs
+        This is evaluated as an OR of allowed_keys, allowed_courses, allowed_orgs
         """
-        allowed_keys, allowed_orgs = False, False
+        allowed_keys, allowed_courses, allowed_orgs = False, False, False
         if self.allowed_keys:
             allowed_keys = str(usage_key) in self.allowed_keys
+
+        if self.allowed_courses:
+            allowed_courses = str(usage_key.course_key) in self.allowed_courses
 
         if self.allowed_orgs:
             allowed_orgs = usage_key.course_key.org in self.allowed_orgs
 
-        return allowed_keys or allowed_orgs
+        return allowed_keys or allowed_courses or allowed_orgs
 
 
 class LtiToolOrg(models.Model):

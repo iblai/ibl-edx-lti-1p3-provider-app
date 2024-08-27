@@ -232,25 +232,29 @@ class TestLaunchGate:
 
         assert not gate.can_access_key(key)
 
-    def test_can_access_key_not_in_allowed_keys_or_allowed_orgs_returns_false(self):
+    def test_can_access_key_not_in_keys_or_courses_or_orgs_returns_false(self):
         """If target key not in allowed_keys or allowed_orgs, returns False"""
         allowed_keys = [
             UsageKey.from_string("block-v1:no+course+run+type@some+block@html_id1"),
             UsageKey.from_string("block-v1:no+course+run+type@some+block@html_id2"),
         ]
+        allowed_courses = [str(allowed_keys[0].course_key)]
         allowed_keys = [str(key) for key in allowed_keys]
         allowed_orgs = ["org1", "org2"]
         target_key = UsageKey.from_string(
             "block-v1:bad_org+course+run+type@some+block@html_id"
         )
-        # target org not org1/org2, target key not in allowed_keys
+        # target org not org1/org2, target key not in allowed_keys, not in
+        # allowed_courses
         gate = factories.LaunchGateFactory(
-            allowed_keys=allowed_keys, allowed_orgs=allowed_orgs
+            allowed_keys=allowed_keys,
+            allowed_courses=allowed_courses,
+            allowed_orgs=allowed_orgs,
         )
 
         assert not gate.can_access_key(target_key)
 
-    def test_can_access_key_allowed_keys_match_returns_true(self):
+    def test_can_access_key_in_allowed_keys_returns_true(self):
         """If target key in allowed_keys, returns True"""
         allowed_keys = [
             UsageKey.from_string("block-v1:org+course+run+type@some+block@html_id1"),
@@ -270,8 +274,24 @@ class TestLaunchGate:
             UsageKey.from_string("block-v1:org2+other+run+type@some+block@html_id"),
         ),
     )
-    def test_can_access_key_allowed_orgs_match_returns_true(self, key):
+    def test_can_access_key_allowed_in_allowed_orgs_returns_true(self, key):
         """If target key in allowed_orgs, returns True"""
         gate = factories.LaunchGateFactory(allowed_orgs=["org1", "org2"])
+
+        assert gate.can_access_key(key)
+
+    @pytest.mark.parametrize(
+        "key",
+        (
+            UsageKey.from_string("block-v1:org1+course+run+type@some+block@html_id"),
+            UsageKey.from_string("block-v1:org1+course+run+type@verical+block@html_id"),
+            UsageKey.from_string("block-v1:org2+other+run+type@some+block@html_id"),
+        ),
+    )
+    def test_can_access_key_allowed_in_allowed_courses_returns_true(self, key):
+        """If target key in allowed_courses, returns True"""
+        course1 = CourseKey.from_string("course-v1:org1+course+run")
+        course2 = CourseKey.from_string("course-v1:org2+other+run")
+        gate = factories.LaunchGateFactory(allowed_courses=[str(course1), str(course2)])
 
         assert gate.can_access_key(key)
