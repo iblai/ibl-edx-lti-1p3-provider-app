@@ -170,7 +170,6 @@ class LtiToolSerializer(serializers.ModelSerializer):
             "issuer",
             "is_active",
             "client_id",
-            "use_by_default",
             "auth_login_url",
             "auth_token_url",
             "auth_audience",
