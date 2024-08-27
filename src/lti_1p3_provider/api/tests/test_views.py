@@ -115,7 +115,7 @@ class TestLtiKeyViews(BaseView):
 
         resp = self.request(client, "post", endpoint, data=payload, token=admin_token)
 
-        assert resp.json() == ["Tool name: 'test' already exists"]
+        assert resp.json() == ["Key name: 'test' already exists"]
         assert resp.status_code == 400
 
     def test_create_same_name_in_multiple_orgs_succeeds_200(self, client, admin_token):
@@ -236,6 +236,24 @@ class TestLtiKeyViews(BaseView):
         }
         assert resp.status_code == 200
 
+    def test_update_key_name_already_exists_returns_400(self, client, admin_token):
+        """Test updating a tool name that already exists in org returns 400"""
+        org1 = OrganizationFactory()
+        org_key1 = factories.LtiKeyOrgFactory(
+            org=org1, key__name=f"{org1.short_name}-test1"
+        )
+        org_key = factories.LtiKeyOrgFactory(
+            org=org1, key__name=f"{org1.short_name}-test"
+        )
+        # try to rename it to test which is already taken in this org
+        payload = {"name": "test1"}
+        endpoint = self._get_detail_endpoint(org1.short_name, org_key.key.id)
+
+        resp = self.request(client, "put", endpoint, data=payload, token=admin_token)
+
+        assert resp.json() == ["Key name: 'test1' already exists"]
+        assert resp.status_code == 400
+
     def test_update_returns_200(self, client, admin_token):
         """Update updates name and returns 200"""
         org = OrganizationFactory()
@@ -283,7 +301,6 @@ class TestLtiToolViews(BaseView):
             "is_active": True,
             "issuer": "https://issuer.local",
             "client_id": "12345",
-            "use_by_default": False,
             "auth_login_url": "https://issuer.local/auth",
             "auth_token_url": "https://issuer.local/token",
             "auth_audience": "",
@@ -375,7 +392,6 @@ class TestLtiToolViews(BaseView):
         endpoint = self._get_list_endpoint(self.org.short_name)
         expected = self.payload.copy()
         self.payload.pop("is_active")
-        self.payload.pop("use_by_default")
         self.payload.pop("auth_audience")
         self.payload.pop("key_set")
 
