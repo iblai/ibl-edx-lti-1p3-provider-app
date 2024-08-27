@@ -67,7 +67,10 @@ class LtiToolKeySerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         name = validated_data["name"]
         validated_data["name"] = f"{self.context['org_short_name']}-{name}"
-        return super().update(instance, validated_data)
+        try:
+            return super().update(instance, validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError(f"Key name: '{name}' already exists")
 
     def create(self, validated_data):
         """Autogenerate private/public key pairs"""
@@ -85,7 +88,7 @@ class LtiToolKeySerializer(serializers.ModelSerializer):
             tool_key = LtiToolKey.objects.create(**validated_data)
             LtiKeyOrg.objects.create(key=tool_key, org=lti_org)
         except IntegrityError:
-            raise serializers.ValidationError(f"Tool name: '{name}' already exists")
+            raise serializers.ValidationError(f"Key name: '{name}' already exists")
         return tool_key
 
 
