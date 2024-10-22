@@ -2,9 +2,13 @@
 
 ## Unreleased
 
+## 2.4.0
+### Adds
+- [#25](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/25): Adds `allowed_courses` to `LaunchGate` so tool could access all content in specific courses
+    - Adds `launch_gate` to LtiTool API so admins can control this
+
 ## 2.3.0
 ### Adds
-- [#25](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/25): Adds `allowed_courses` to `LaunchGate`
 - [#21](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/21): Adds API to manage `LtiToolKey`'s at a tenant level
 - [#22](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/22): Adds API to manage `LtiTool`'s at a tenant level
 
