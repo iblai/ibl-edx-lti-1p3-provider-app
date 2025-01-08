@@ -57,7 +57,6 @@ from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 from opaque_keys.edx.django.models import CourseKeyField, UsageKeyField
 from opaque_keys.edx.keys import UsageKey
-from openedx.core.djangoapps.site_configuration.models import SiteConfiguration
 from organizations.models import Organization
 from pylti1p3.contrib.django import DjangoDbToolConf, DjangoMessageLaunch
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
@@ -81,21 +80,22 @@ class LtiProfileManager(models.Manager):
         """
         return self.get(platform_id=iss, client_id=aud, subject_id=sub)
 
-    def get_or_create_from_claims(self, *, iss, aud, sub):
+    def get_or_create_from_claims(self, *, iss, aud, sub, email):
         """
         Get or create an instance from a LTI launch claims.
         """
         try:
+            # We don't need to lookup by email, only create by email so we have it
             return self.get_from_claims(iss=iss, aud=aud, sub=sub)
         except self.model.DoesNotExist:
             # User will be created on ``save()``.
-            return self.create(platform_id=iss, client_id=aud, subject_id=sub)
+            return self.create(
+                platform_id=iss, client_id=aud, subject_id=sub, email=email
+            )
 
 
 class LtiProfile(models.Model):
     """
-    Content Libraries LTI's profile for Open edX users.
-
     Unless Anonymous, this should be a unique representation of the LTI subject
     (as per the client token ``sub`` identify claim) that initiated an LTI
     launch through the LTI 1.3 Provider.
@@ -135,6 +135,13 @@ class LtiProfile(models.Model):
                 "user (sub)."
             )
         ),
+    )
+
+    email = models.CharField(
+        max_length=255,
+        default="",
+        verbose_name=_("email"),
+        help_text=_("Email claim if provided"),
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
