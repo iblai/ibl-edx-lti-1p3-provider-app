@@ -28,8 +28,7 @@ class LtiProfileTest(TestCase):
         with self.assertRaises(LtiProfile.DoesNotExist):
             LtiProfile.objects.get_from_claims(iss="iss", aud="aud", sub="sub")
 
-    @pytest.mark.parametrize("email", ("test@example.com", ""))
-    def test_get_from_claims_exists(self, email):
+    def test_get_from_claims_exists(self):
         """
         Given a LtiProfile with iss and sub,
         When get_from_claims()
@@ -40,7 +39,7 @@ class LtiProfileTest(TestCase):
         sub = "randomly-selected-sub-for-testing"
         aud = "randomly-selected-aud-for-testing"
         profile = LtiProfile.objects.create(
-            platform_id=iss, client_id=aud, subject_id=sub, email=email
+            platform_id=iss, client_id=aud, subject_id=sub
         )
 
         queried_profile = LtiProfile.objects.get_from_claims(iss=iss, aud=aud, sub=sub)
