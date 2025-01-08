@@ -80,7 +80,7 @@ class LtiProfileManager(models.Manager):
         """
         return self.get(platform_id=iss, client_id=aud, subject_id=sub)
 
-    def get_or_create_from_claims(self, *, iss, aud, sub, email):
+    def get_or_create_from_claims(self, *, iss, aud, sub, email=""):
         """
         Get or create an instance from a LTI launch claims.
         """
