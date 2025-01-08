@@ -9,6 +9,7 @@ from urllib import parse
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login
+from django.db import transaction
 from django.http import (
     Http404,
     HttpResponse,
@@ -155,11 +156,23 @@ class LtiToolLaunchView(LtiToolView):
         authenticate the LTI user associated with it.
         """
 
-        LtiProfile.objects.get_or_create_from_claims(
+        email_claim = self.launch_data.get("email", "")
+        profile = LtiProfile.objects.get_or_create_from_claims(
             iss=self.launch_data["iss"],
             aud=self.launch_data["aud"],
             sub=self.launch_data["sub"],
+            email=email_claim,
         )
+
+        # Make sure email is updated in the UserProfile if it exists
+        if email_claim:
+            if not profile.email:
+                self._update_user_email(profile, email_claim)
+                log.info("Set previously unset email for LTI profile %s", profile)
+            elif profile.email != email_claim:
+                self._update_user_email(profile, email_claim)
+                log.info("Updated email for LTI profile %s", profile)
+
         edx_user = authenticate(
             self.request,
             iss=self.launch_data["iss"],
@@ -179,6 +192,15 @@ class LtiToolLaunchView(LtiToolView):
             )
 
         return edx_user
+
+    def _update_user_email(self, lti_profile: LtiProfile, email: str) -> None:
+        """Update the lti_1p3_email meta field on the user profile"""
+        with transaction.atomic():
+            lti_profile.email = email
+            lti_profile.save()
+            user_profile = lti_profile.user.profile
+            user_profile.meta["lti_1p3_email"] = email
+            user_profile.save()
 
     def _bad_request_response(self):
         """
