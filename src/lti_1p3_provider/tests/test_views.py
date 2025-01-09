@@ -12,6 +12,7 @@ from urllib import parse
 import jwt
 import pytest
 from bs4 import BeautifulSoup
+from common.djangoapps.student.tests.factories import UserProfileFactory
 from crum import CurrentRequestUserMiddleware
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
@@ -201,7 +202,6 @@ class TestLtiToolLaunchView:
     def test_successful_launch_with_email_updates_user_profile(self, client):
         """If email claim provided, sets it in the LtiProfile and UserProfile"""
         email = "test@example.com"
-        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
         target_link_uri = _get_target_link_uri(
             str(factories.COURSE_KEY), str(factories.USAGE_KEY)
         )
@@ -251,6 +251,7 @@ class TestLtiToolLaunchView:
         lti_profile = LtiProfile.objects.get_or_create_from_claims(
             iss=id_token["iss"], aud=id_token["aud"], sub=id_token["sub"], email=""
         )
+        UserProfileFactory(user=lti_profile.user)
 
         resp = client.post(self.launch_endpoint, payload)
 
@@ -269,7 +270,8 @@ class TestLtiToolLaunchView:
         assert fetched_profile == lti_profile
         assert fetched_profile.email == email
         assert (
-            lti_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY] == "test@example.com"
+            lti_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY]
+            == "test@example.com"
         )
 
     def test_successful_launch_no_gate(self, client):
