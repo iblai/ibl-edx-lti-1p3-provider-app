@@ -24,6 +24,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import View
 from jwcrypto.common import JWException
+from lms.djangoapps.student.models import UserProfile
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from openedx.core.djangoapps.safe_sessions.middleware import (
@@ -165,13 +166,10 @@ class LtiToolLaunchView(LtiToolView):
         )
 
         # Make sure email is updated in the UserProfile if it exists
-        if email_claim:
-            if not profile.email:
-                self._update_user_email(profile, email_claim)
-                log.info("Set previously unset email for LTI profile %s", profile)
-            elif profile.email != email_claim:
-                self._update_user_email(profile, email_claim)
-                log.info("Updated email for LTI profile %s", profile)
+        if email_claim and email_claim != profile.email:
+            self._update_user_email(profile, email_claim)
+            action = "Set previously unset" if not profile.email else "Updated"
+            log.info("%s email for LTI profile %s", action, profile)
 
         edx_user = authenticate(
             self.request,
@@ -198,9 +196,16 @@ class LtiToolLaunchView(LtiToolView):
         with transaction.atomic():
             lti_profile.email = email
             lti_profile.save()
-            user_profile = lti_profile.user.profile
-            user_profile.meta["lti_1p3_email"] = email
-            user_profile.save()
+            try:
+                user_profile = lti_profile.user.profile
+                meta = user_profile.get_meta()
+                meta["lti_1p3_email"] = email
+                user_profile.set_meta(meta)
+                user_profile.save()
+
+            except UserProfile.DoesNotExist:
+                meta = json.dumps({"lti_1p3_email": email})
+                UserProfile.objects.create(user=lti_profile.user, meta=meta)
 
     def _bad_request_response(self):
         """
