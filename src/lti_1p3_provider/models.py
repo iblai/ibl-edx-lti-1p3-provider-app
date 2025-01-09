@@ -74,10 +74,14 @@ class LtiProfileManager(models.Manager):
     Custom manager of LtiProfile mode.
     """
 
-    def get_from_claims(self, *, iss, aud, sub):
+    def get_from_claims(self, *, iss, aud, sub, email=""):
         """
         Get the an instance from a LTI launch claims.
         """
+        if email:
+            return self.get(
+                platform_id=iss, client_id=aud, subject_id=sub
+            ).select_related("user__profile")
         return self.get(platform_id=iss, client_id=aud, subject_id=sub)
 
     def get_or_create_from_claims(self, *, iss, aud, sub, email=""):
@@ -86,7 +90,7 @@ class LtiProfileManager(models.Manager):
         """
         try:
             # We don't need to lookup by email, only create by email so we have it
-            return self.get_from_claims(iss=iss, aud=aud, sub=sub)
+            return self.get_from_claims(iss=iss, aud=aud, sub=sub, email=email)
         except self.model.DoesNotExist:
             # User will be created on ``save()``.
             return self.create(
