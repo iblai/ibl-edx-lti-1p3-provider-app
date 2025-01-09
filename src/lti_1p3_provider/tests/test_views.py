@@ -199,8 +199,11 @@ class TestLtiToolLaunchView:
 
         assert resp.status_code == 404
 
-    def test_successful_launch_with_email_updates_user_profile(self, client):
-        """If email claim provided, sets it in the LtiProfile and UserProfile"""
+    def test_successful_launch_with_email_sets_email_in_profile(self, client):
+        """If email claim provided, sets it in the LtiProfile and UserProfile
+
+        User does not yet exist, so User, LtiProfile, and UserProfile are created
+        """
         email = "test@example.com"
         target_link_uri = _get_target_link_uri(
             str(factories.COURSE_KEY), str(factories.USAGE_KEY)
@@ -232,7 +235,10 @@ class TestLtiToolLaunchView:
         assert lti_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY] == email
 
     def test_existing_user_profile_with_no_email_gets_updated(self, client):
-        """If email claim provided, updates the existing LtiProfile and UserProfile"""
+        """If email claim provided, updates the existing LtiProfile and UserProfile
+
+        User, LtiProfile, and UserProfile exist, but UserProfile has no email
+        """
         email = "test@example.com"
         payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
         target_link_uri = _get_target_link_uri(
@@ -251,6 +257,7 @@ class TestLtiToolLaunchView:
         lti_profile = LtiProfile.objects.get_or_create_from_claims(
             iss=id_token["iss"], aud=id_token["aud"], sub=id_token["sub"], email=""
         )
+        # UserProfile exists, but has no email
         UserProfileFactory(user=lti_profile.user)
 
         resp = client.post(self.launch_endpoint, payload)
@@ -269,10 +276,58 @@ class TestLtiToolLaunchView:
         )
         assert fetched_profile == lti_profile
         assert fetched_profile.email == email
-        assert (
-            fetched_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY]
-            == "test@example.com"
+        assert fetched_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY] == email
+
+    def test_existing_user_profile_with_email_gets_updated(self, client):
+        """If email claim provided, updates the existing LtiProfile and UserProfile
+
+        User, LtiProfile, and UserProfile exist, and UserProfile has email set
+        """
+        email = "test@example.com"
+        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+        target_link_uri = _get_target_link_uri(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
         )
+        # This id token has an email
+        id_token = factories.IdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            target_link_uri=target_link_uri,
+            email="test@example.com",
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
+        # Create a profile with email already set
+        lti_profile = LtiProfile.objects.get_or_create_from_claims(
+            iss=id_token["iss"],
+            aud=id_token["aud"],
+            sub=id_token["sub"],
+            email="already@set.com",
+        )
+        # UserProfile exists, and has email set
+        user_profile = UserProfileFactory(
+            user=lti_profile.user,
+            meta=f'{{"{LTI_1P3_EMAIL_META_KEY}": "already@set.com"}}',
+        )
+        assert user_profile.get_meta()[LTI_1P3_EMAIL_META_KEY] == "already@set.com"
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        assert resp.status_code == 302
+        redirect_uri = reverse(
+            "lti_1p3_provider:lti-display",
+            kwargs={
+                "course_id": str(factories.COURSE_KEY),
+                "usage_id": str(factories.USAGE_KEY),
+            },
+        )
+        assert resp.url == f"http://localhost{redirect_uri}"
+        fetched_profile = LtiProfile.objects.get_from_claims(
+            iss=id_token["iss"], aud=id_token["aud"], sub=id_token["sub"]
+        )
+        assert fetched_profile == lti_profile
+        assert fetched_profile.email == email
+        assert fetched_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY] == email
 
     def test_successful_launch_no_gate(self, client):
         """Test successsful launch with no gate in place"""
