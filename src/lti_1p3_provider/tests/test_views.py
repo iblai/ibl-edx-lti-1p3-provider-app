@@ -244,7 +244,7 @@ class TestLtiToolLaunchView:
         encoded = _encode_platform_jwt(id_token, self.kid)
         payload = {"state": "state", "id_token": encoded}
         # Create a profile with no email
-        LtiProfile.objects.get_or_create_from_claims(
+        lti_profile = LtiProfile.objects.get_or_create_from_claims(
             iss=id_token["iss"], aud=id_token["aud"], sub=id_token["sub"], email=""
         )
 
