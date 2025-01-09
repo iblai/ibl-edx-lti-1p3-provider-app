@@ -270,7 +270,7 @@ class TestLtiToolLaunchView:
         assert fetched_profile == lti_profile
         assert fetched_profile.email == email
         assert (
-            lti_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY]
+            fetched_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY]
             == "test@example.com"
         )
 
