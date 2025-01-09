@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from urllib import parse
 
+from common.djangoapps.student.models import UserProfile
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login
 from django.db import transaction
@@ -24,7 +25,6 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import View
 from jwcrypto.common import JWException
-from lms.djangoapps.student.models import UserProfile
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from openedx.core.djangoapps.safe_sessions.middleware import (
