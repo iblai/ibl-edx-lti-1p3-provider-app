@@ -94,16 +94,41 @@ class LtiProfileTest(TestCase):
         iss = "http://foo.example.com/"
         sub = "randomly-selected-sub-for-testing"
         aud = "randomly-selected-aud-for-testing"
+        email = ""
         self.assertFalse(LtiProfile.objects.exists())
         profile = LtiProfile.objects.get_or_create_from_claims(
-            iss=iss, aud=aud, sub=sub
+            iss=iss, aud=aud, sub=sub, email=email
         )
         self.assertIsNotNone(profile.user)
         self.assertEqual(iss, profile.platform_id)
         self.assertEqual(sub, profile.subject_id)
 
         profile_two = LtiProfile.objects.get_or_create_from_claims(
-            iss=iss, aud=aud, sub=sub
+            iss=iss, aud=aud, sub=sub, email=email
+        )
+        self.assertEqual(profile_two, profile)
+
+    def test_get_or_create_from_claims_with_email(self):
+        """
+        Given a profile does not exist
+        When get or create with email
+        And get or create again
+        Then the same profile is returned.
+        """
+        iss = "http://foo.example.com/"
+        sub = "randomly-selected-sub-for-testing"
+        aud = "randomly-selected-aud-for-testing"
+        email = "test@example.com"
+        self.assertFalse(LtiProfile.objects.exists())
+        profile = LtiProfile.objects.get_or_create_from_claims(
+            iss=iss, aud=aud, sub=sub, email=email
+        )
+        self.assertIsNotNone(profile.user)
+        self.assertEqual(iss, profile.platform_id)
+        self.assertEqual(sub, profile.subject_id)
+
+        profile_two = LtiProfile.objects.get_or_create_from_claims(
+            iss=iss, aud=aud, sub=sub, email=email
         )
         self.assertEqual(profile_two, profile)
 
@@ -118,8 +143,32 @@ class LtiProfileTest(TestCase):
         sub_one = "randomly-selected-sub-for-testing"
         sub_two = "another-randomly-sub-for-testing"
         self.assertFalse(LtiProfile.objects.exists())
-        LtiProfile.objects.get_or_create_from_claims(iss=iss, aud=aud, sub=sub_one)
-        LtiProfile.objects.get_or_create_from_claims(iss=iss, aud=aud, sub=sub_two)
+        LtiProfile.objects.get_or_create_from_claims(
+            iss=iss, aud=aud, sub=sub_one, email=""
+        )
+        LtiProfile.objects.get_or_create_from_claims(
+            iss=iss, aud=aud, sub=sub_two, email=""
+        )
+
+    def test_get_or_create_from_claims_twice_with_email(self):
+        """
+        Given a profile
+        When another profile is created with email
+        Then success
+        """
+        iss = "http://foo.example.com/"
+        aud = "randomly-selected-aud-for-testing"
+        sub_one = "randomly-selected-sub-for-testing"
+        email1 = "test1@example.com"
+        sub_two = "another-randomly-sub-for-testing"
+        email2 = "test2@example.com"
+        self.assertFalse(LtiProfile.objects.exists())
+        LtiProfile.objects.get_or_create_from_claims(
+            iss=iss, aud=aud, sub=sub_one, email=email1
+        )
+        LtiProfile.objects.get_or_create_from_claims(
+            iss=iss, aud=aud, sub=sub_two, email=email2
+        )
 
 
 @pytest.mark.django_db

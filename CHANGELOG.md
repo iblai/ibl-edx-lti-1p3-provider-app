@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.3.1
+### Changed
+- [#28](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/28): Stores JWT email claim in `UserProfile.meta` and `LtiProfile.email` if present
+    - Adds `email` field to `LtiProfile`
+    - Creates `UserProfile` if it doesn't exist
+
 ## 2.3.0
 ### Adds
 - [#25](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/25): Adds `allowed_courses` to `LaunchGate`

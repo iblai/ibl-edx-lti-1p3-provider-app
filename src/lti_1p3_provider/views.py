@@ -7,8 +7,10 @@ import logging
 from datetime import datetime, timedelta
 from urllib import parse
 
+from common.djangoapps.student.models import UserProfile
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login
+from django.db import transaction
 from django.http import (
     Http404,
     HttpResponse,
@@ -46,6 +48,8 @@ from .session_access import has_lti_session_access, set_lti_session_access
 
 log = logging.getLogger(__name__)
 User = get_user_model()
+
+LTI_1P3_EMAIL_META_KEY = "lti_1p3_email"
 
 
 def requires_lti_enabled(view_func):
@@ -155,11 +159,21 @@ class LtiToolLaunchView(LtiToolView):
         authenticate the LTI user associated with it.
         """
 
-        LtiProfile.objects.get_or_create_from_claims(
+        email_claim = self.launch_data.get("email", "")
+        profile = LtiProfile.objects.get_or_create_from_claims(
             iss=self.launch_data["iss"],
             aud=self.launch_data["aud"],
             sub=self.launch_data["sub"],
+            email=email_claim,
         )
+
+        # Make sure email is updated in LtiProfile and UserProfile
+        if email_claim:
+            if profile.email != email_claim:
+                profile.email = email_claim
+                profile.save()
+            self._update_or_create_user_profile(profile, email_claim)
+
         edx_user = authenticate(
             self.request,
             iss=self.launch_data["iss"],
@@ -179,6 +193,36 @@ class LtiToolLaunchView(LtiToolView):
             )
 
         return edx_user
+
+    def _update_or_create_user_profile(
+        self, profile: LtiProfile, email_claim: str
+    ) -> None:
+        """Update or create the LTI_1P3_EMAIL_META_KEY field on the UserProfile.meta"""
+        try:
+            user_profile = profile.user.profile
+        except UserProfile.DoesNotExist:
+            meta = json.dumps({LTI_1P3_EMAIL_META_KEY: email_claim})
+            user_profile = UserProfile.objects.create(user=profile.user, meta=meta)
+            log.info(
+                "Created UserProfile for LTI profile %s (id=%s)",
+                profile,
+                profile.id,
+            )
+            return
+
+        meta = user_profile.get_meta()
+        if meta.get(LTI_1P3_EMAIL_META_KEY, "") == email_claim:
+            return
+
+        meta[LTI_1P3_EMAIL_META_KEY] = email_claim
+        user_profile.set_meta(meta)
+        user_profile.save()
+        log.info(
+            "Updated UserProfile %s for LTI profile %s (id=%s)",
+            LTI_1P3_EMAIL_META_KEY,
+            profile,
+            profile.id,
+        )
 
     def _bad_request_response(self):
         """

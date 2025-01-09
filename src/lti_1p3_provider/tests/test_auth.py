@@ -2,7 +2,6 @@
 Unit tests for Content Libraries authentication module.
 """
 
-
 from django.test import TestCase
 
 from lti_1p3_provider.auth import Lti1p3AuthenticationBackend
@@ -17,6 +16,7 @@ class LtiAuthenticationBackendTest(TestCase):
     iss = "http://foo.bar"
     aud = "a-random-test-aud"
     sub = "a-random-test-sub"
+    email = "test@example.com"
 
     def test_without_profile(self):
         get_user_model().objects.create(username="foobar")
@@ -27,6 +27,19 @@ class LtiAuthenticationBackendTest(TestCase):
     def test_with_profile(self):
         profile = LtiProfile.objects.create(
             platform_id=self.iss, client_id=self.aud, subject_id=self.sub
+        )
+        backend = Lti1p3AuthenticationBackend()
+        user = backend.authenticate(None, iss=self.iss, aud=self.aud, sub=self.sub)
+        self.assertIsNotNone(user)
+        self.assertEqual(user.lti_1p3_provider_lti_profile, profile)
+
+    def test_with_profile_and_email(self):
+        """Email is not considered when doing lookups"""
+        profile = LtiProfile.objects.create(
+            platform_id=self.iss,
+            client_id=self.aud,
+            subject_id=self.sub,
+            email=self.email,
         )
         backend = Lti1p3AuthenticationBackend()
         user = backend.authenticate(None, iss=self.iss, aud=self.aud, sub=self.sub)
