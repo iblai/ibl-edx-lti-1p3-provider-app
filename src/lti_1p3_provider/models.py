@@ -79,9 +79,9 @@ class LtiProfileManager(models.Manager):
         Get the an instance from a LTI launch claims.
         """
         if email:
-            return self.get(
+            return self.select_related("user__profile").get(
                 platform_id=iss, client_id=aud, subject_id=sub
-            ).select_related("user__profile")
+            )
         return self.get(platform_id=iss, client_id=aud, subject_id=sub)
 
     def get_or_create_from_claims(self, *, iss, aud, sub, email=""):
