@@ -211,7 +211,7 @@ class LtiToolLaunchView(LtiToolView):
             return
 
         meta = user_profile.get_meta()
-        if meta[LTI_1P3_EMAIL_META_KEY] == email_claim:
+        if meta.get(LTI_1P3_EMAIL_META_KEY, "") == email_claim:
             return
 
         meta[LTI_1P3_EMAIL_META_KEY] = email_claim
