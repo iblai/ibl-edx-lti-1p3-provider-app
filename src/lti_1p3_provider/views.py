@@ -49,6 +49,8 @@ from .session_access import has_lti_session_access, set_lti_session_access
 log = logging.getLogger(__name__)
 User = get_user_model()
 
+LTI_1P3_EMAIL_META_KEY = "lti_1p3_email"
+
 
 def requires_lti_enabled(view_func):
     """
@@ -165,11 +167,12 @@ class LtiToolLaunchView(LtiToolView):
             email=email_claim,
         )
 
-        # Make sure email is updated in the UserProfile if it exists
-        if email_claim and email_claim != profile.email:
-            self._update_user_email(profile, email_claim)
-            action = "Set previously unset" if not profile.email else "Updated"
-            log.info("%s email for LTI profile %s", action, profile)
+        # Make sure email is updated in LtiProfile and UserProfile
+        if email_claim:
+            if profile.email != email_claim:
+                profile.email = email_claim
+                profile.save()
+            self._update_or_create_user_profile(profile, email_claim)
 
         edx_user = authenticate(
             self.request,
@@ -191,21 +194,35 @@ class LtiToolLaunchView(LtiToolView):
 
         return edx_user
 
-    def _update_user_email(self, lti_profile: LtiProfile, email: str) -> None:
-        """Update the lti_1p3_email meta field on the user profile"""
-        with transaction.atomic():
-            lti_profile.email = email
-            lti_profile.save()
-            try:
-                user_profile = lti_profile.user.profile
-                meta = user_profile.get_meta()
-                meta["lti_1p3_email"] = email
-                user_profile.set_meta(meta)
-                user_profile.save()
+    def _update_or_create_user_profile(
+        self, profile: LtiProfile, email_claim: str
+    ) -> None:
+        """Update or create the LTI_1P3_EMAIL_META_KEY field on the UserProfile.meta"""
+        try:
+            user_profile = profile.user.profile
+        except UserProfile.DoesNotExist:
+            meta = json.dumps({LTI_1P3_EMAIL_META_KEY: email_claim})
+            user_profile = UserProfile.objects.create(user=profile.user, meta=meta)
+            log.info(
+                "Created UserProfile for LTI profile %s (id=%s)",
+                profile,
+                profile.id,
+            )
+            return
 
-            except UserProfile.DoesNotExist:
-                meta = json.dumps({"lti_1p3_email": email})
-                UserProfile.objects.create(user=lti_profile.user, meta=meta)
+        meta = user_profile.get_meta()
+        if meta[LTI_1P3_EMAIL_META_KEY] == email_claim:
+            return
+
+        meta[LTI_1P3_EMAIL_META_KEY] = email_claim
+        user_profile.set_meta(meta)
+        user_profile.save()
+        log.info(
+            "Updated UserProfile %s for LTI profile %s (id=%s)",
+            LTI_1P3_EMAIL_META_KEY,
+            profile,
+            profile.id,
+        )
 
     def _bad_request_response(self):
         """

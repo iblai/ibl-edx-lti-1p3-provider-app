@@ -29,7 +29,11 @@ from lti_1p3_provider.api.ssl_services import (
 )
 from lti_1p3_provider.models import LtiGradedResource, LtiProfile
 from lti_1p3_provider.session_access import LTI_SESSION_KEY
-from lti_1p3_provider.views import DisplayTargetResource, LtiToolLaunchView
+from lti_1p3_provider.views import (
+    LTI_1P3_EMAIL_META_KEY,
+    DisplayTargetResource,
+    LtiToolLaunchView,
+)
 
 from . import factories, fakes
 from .base import URL_LIB_LTI_JWKS
@@ -225,7 +229,7 @@ class TestLtiToolLaunchView:
             iss=id_token["iss"], aud=id_token["aud"], sub=id_token["sub"]
         )
         assert lti_profile.email == email
-        assert lti_profile.user.profile.get_meta()["lti_1p3_email"] == email
+        assert lti_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY] == email
 
     def test_existing_user_profile_with_no_email_gets_updated(self, client):
         """If email claim provided, updates the existing LtiProfile and UserProfile"""
@@ -265,7 +269,7 @@ class TestLtiToolLaunchView:
         assert fetched_profile == lti_profile
         assert fetched_profile.email == email
         assert (
-            lti_profile.user.profile.get_meta()["lti_1p3_email"] == "test@example.com"
+            lti_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY] == "test@example.com"
         )
 
     def test_successful_launch_no_gate(self, client):
@@ -286,7 +290,7 @@ class TestLtiToolLaunchView:
         # Since no email in id_token, the profile should have no email
         fetched_profile = LtiProfile.objects.first()
         assert fetched_profile.email == ""
-        assert "lti_1p3_email" not in fetched_profile.user.profile.get_meta()
+        assert LTI_1P3_EMAIL_META_KEY not in fetched_profile.user.profile.get_meta()
 
     def test_successful_launch_with_gate(self, client):
         """Test successful launch where target_link_uri is allowed by gate"""
