@@ -222,7 +222,7 @@ class TestLtiToolLaunchView:
         )
         assert resp.url == f"http://localhost{redirect_uri}"
         lti_profile = LtiProfile.objects.get_from_claims(
-            id_token["iss"], id_token["aud"], id_token["sub"]
+            iss=id_token["iss"], aud=id_token["aud"], sub=id_token["sub"]
         )
         assert lti_profile.email == email
         assert lti_profile.user.profile.meta["lti_1p3_email"] == email
@@ -244,8 +244,8 @@ class TestLtiToolLaunchView:
         encoded = _encode_platform_jwt(id_token, self.kid)
         payload = {"state": "state", "id_token": encoded}
         # Create a profile with no email
-        lti_profile = LtiProfile.objects.get_or_create_from_claims(
-            id_token["iss"], id_token["aud"], id_token["sub"], ""
+        LtiProfile.objects.get_or_create_from_claims(
+            iss=id_token["iss"], aud=id_token["aud"], sub=id_token["sub"], email=""
         )
 
         resp = client.post(self.launch_endpoint, payload)
@@ -260,7 +260,7 @@ class TestLtiToolLaunchView:
         )
         assert resp.url == f"http://localhost{redirect_uri}"
         fetched_profile = LtiProfile.objects.get_from_claims(
-            id_token["iss"], id_token["aud"], id_token["sub"]
+            iss=id_token["iss"], aud=id_token["aud"], sub=id_token["sub"]
         )
         assert fetched_profile == lti_profile
         assert fetched_profile.email == email
