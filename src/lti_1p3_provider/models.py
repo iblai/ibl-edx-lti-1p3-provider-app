@@ -48,12 +48,14 @@ Domain Model (Core concepts shown only - other meta data may exist):
        └──────────────────┘
 """
 
+from __future__ import annotations
+
 import logging
 import random
 import string
 
 from django.contrib.auth import get_user_model
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.utils.translation import gettext_lazy as _
 from opaque_keys.edx.django.models import CourseKeyField, UsageKeyField
 from opaque_keys.edx.keys import UsageKey
@@ -69,6 +71,20 @@ log = logging.getLogger(__name__)
 User = get_user_model()
 
 
+def create_edx_user(first_name: str, last_name: str) -> tuple[User, bool]:
+    """Create an edX user with a random username/email and unusable passwordg"""
+    username = generate_random_edx_username()
+    # NOTE: Changed @{ContentLibrariesConfig.name}
+    email = f"{username}@{EDX_LTI_EMAIL_DOMAIN}"
+    user = User.objects.create(
+        username=username, email=email, first_name=first_name, last_name=last_name
+    )
+    # LTI users can only auth throught LTI launches.
+    user.set_unusable_password()
+    user.save()
+    return user
+
+
 class LtiProfileManager(models.Manager):
     """
     Custom manager of LtiProfile mode.
@@ -82,9 +98,13 @@ class LtiProfileManager(models.Manager):
             return self.select_related("user__profile").get(
                 platform_id=iss, client_id=aud, subject_id=sub
             )
-        return self.get(platform_id=iss, client_id=aud, subject_id=sub)
+        return self.select_related("user").get(
+            platform_id=iss, client_id=aud, subject_id=sub
+        )
 
-    def get_or_create_from_claims(self, *, iss, aud, sub, email=""):
+    def get_or_create_from_claims(
+        self, *, iss, aud, sub, email="", first_name="", last_name=""
+    ):
         """
         Get or create an instance from a LTI launch claims.
         """
@@ -92,9 +112,21 @@ class LtiProfileManager(models.Manager):
             # We don't need to lookup by email, only create by email so we have it
             return self.get_from_claims(iss=iss, aud=aud, sub=sub, email=email)
         except self.model.DoesNotExist:
-            # User will be created on ``save()``.
+            pass
+
+        with transaction.atomic():
+            try:
+                user = create_edx_user(first_name, last_name)
+            except IntegrityError:
+                # In case we get a duplicate username - odds are very low so trying
+                # once more should be sufficient
+                user = create_edx_user(first_name, last_name)
             return self.create(
-                platform_id=iss, client_id=aud, subject_id=sub, email=email
+                user=user,
+                platform_id=iss,
+                client_id=aud,
+                subject_id=sub,
+                email=email,
             )
 
 
@@ -162,26 +194,6 @@ class LtiProfile(models.Model):
         and append paths with the reamaining keys to it.
         """
         return "/".join([self.platform_id.rstrip("/"), self.client_id, self.subject_id])
-
-    def save(self, *args, **kwds):
-        """
-        Get or create an edx user on save.
-        """
-        if not self.user:
-            username = generate_random_edx_username()
-            # NOTE: Changed @{ContentLibrariesConfig.name}
-            email = f"{username}@{EDX_LTI_EMAIL_DOMAIN}"
-            with transaction.atomic():
-                if self.user is None:
-                    self.user, created = User.objects.get_or_create(
-                        username=username, defaults={"email": email}
-                    )
-                    if created:
-                        # LTI users can only auth throught LTI launches.
-                        self.user.set_unusable_password()
-                    self.user.save()
-
-        super().save(*args, **kwds)
 
     def __str__(self):
         return self.subject_id
