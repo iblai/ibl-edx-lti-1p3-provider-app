@@ -82,6 +82,7 @@ def create_edx_user(first_name: str, last_name: str) -> tuple[User, bool]:
     # LTI users can only auth throught LTI launches.
     user.set_unusable_password()
     user.save()
+    log.info("Created new Edx LTI user: %s", user.username)
     return user
 
 
@@ -120,6 +121,7 @@ class LtiProfileManager(models.Manager):
             except IntegrityError:
                 # In case we get a duplicate username - odds are very low so trying
                 # once more should be sufficient
+                log.warning("Failed to create LTI user due to IntegrityError; retrying")
                 user = create_edx_user(first_name, last_name)
             return self.create(
                 user=user,
