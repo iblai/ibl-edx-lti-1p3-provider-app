@@ -25,8 +25,8 @@ class LtiAuthenticationBackendTest(TestCase):
         self.assertIsNone(user)
 
     def test_with_profile(self):
-        profile = LtiProfile.objects.create(
-            platform_id=self.iss, client_id=self.aud, subject_id=self.sub
+        profile = LtiProfile.objects.get_or_create_from_claims(
+            iss=self.iss, aud=self.aud, sub=self.sub
         )
         backend = Lti1p3AuthenticationBackend()
         user = backend.authenticate(None, iss=self.iss, aud=self.aud, sub=self.sub)
@@ -35,11 +35,8 @@ class LtiAuthenticationBackendTest(TestCase):
 
     def test_with_profile_and_email(self):
         """Email is not considered when doing lookups"""
-        profile = LtiProfile.objects.create(
-            platform_id=self.iss,
-            client_id=self.aud,
-            subject_id=self.sub,
-            email=self.email,
+        profile = LtiProfile.objects.get_or_create_from_claims(
+            iss=self.iss, aud=self.aud, sub=self.sub, email=self.email
         )
         backend = Lti1p3AuthenticationBackend()
         user = backend.authenticate(None, iss=self.iss, aud=self.aud, sub=self.sub)
@@ -47,8 +44,8 @@ class LtiAuthenticationBackendTest(TestCase):
         self.assertEqual(user.lti_1p3_provider_lti_profile, profile)
 
     def test_inactive_user_returns_none(self):
-        profile = LtiProfile.objects.create(
-            platform_id=self.iss, client_id=self.aud, subject_id=self.sub
+        profile = LtiProfile.objects.get_or_create_from_claims(
+            iss=self.iss, aud=self.aud, sub=self.sub
         )
         user = profile.user
         user.is_active = False
