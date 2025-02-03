@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 2.3.2
+### Changed
+- [#30](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/30): Store `given_name` and `family_name` claims on `User` object if present
+    - Stored on `User.first_name` and `User.last_name`, respectively
+
 ## 2.3.1
 ### Changed
 - [#28](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/28): Stores JWT email claim in `UserProfile.meta` and `LtiProfile.email` if present

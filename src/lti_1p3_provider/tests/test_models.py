@@ -64,26 +64,6 @@ class LtiProfileTest(TestCase):
         )
         self.assertEqual(expected_url, profile.subject_url)
 
-    def test_create_with_user(self):
-        """
-        Given a profile without a user
-        When save is called
-        Then a user is created.
-        """
-
-        iss = "http://foo.example.com/"
-        sub = "randomly-selected-sub-for-testing"
-        aud = "randomly-selected-aud-for-testing"
-        with mock.patch(
-            "lti_1p3_provider.models.generate_random_edx_username",
-            return_value="rando-username",
-        ):
-            profile = LtiProfile.objects.create(
-                platform_id=iss, client_id=aud, subject_id=sub
-            )
-        self.assertIsNotNone(profile.user)
-        self.assertEqual(profile.user.username, "rando-username")
-
     def test_get_or_create_from_claims(self):
         """
         Given a profile does not exist

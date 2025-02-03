@@ -235,10 +235,7 @@ class TestLtiToolLaunchView:
         assert lti_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY] == email
 
     def test_existing_user_profile_with_no_email_gets_updated(self, client):
-        """If email claim provided, updates the existing LtiProfile and UserProfile
-
-        User, LtiProfile, and UserProfile exist, but UserProfile has no email
-        """
+        """If email claim provided, updates the existing LtiProfile and UserProfile"""
         email = "test@example.com"
         payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
         target_link_uri = _get_target_link_uri(
@@ -328,6 +325,88 @@ class TestLtiToolLaunchView:
         assert fetched_profile == lti_profile
         assert fetched_profile.email == email
         assert fetched_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY] == email
+
+    def test_successful_launch_with_first_and_last_name_sets_them_on_user(self, client):
+        """If first and last name claims provided, sets them on the User"""
+        target_link_uri = _get_target_link_uri(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        id_token = factories.IdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            target_link_uri=target_link_uri,
+            given_name="First",
+            family_name="Last",
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        assert resp.status_code == 302
+        redirect_uri = reverse(
+            "lti_1p3_provider:lti-display",
+            kwargs={
+                "course_id": str(factories.COURSE_KEY),
+                "usage_id": str(factories.USAGE_KEY),
+            },
+        )
+        assert resp.url == f"http://localhost{redirect_uri}"
+        lti_profile = LtiProfile.objects.get_from_claims(
+            iss=id_token["iss"], aud=id_token["aud"], sub=id_token["sub"]
+        )
+        assert lti_profile.email == ""
+        assert lti_profile.user.first_name == "First"
+        assert lti_profile.user.last_name == "Last"
+
+    def test_successful_launch_with_first_and_last_name_updates_when_exists(
+        self, client
+    ):
+        """If first and last name claims provided, updates the existing User"""
+        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+        target_link_uri = _get_target_link_uri(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        # This id token has an email
+        id_token = factories.IdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            target_link_uri=target_link_uri,
+            given_name="First-new",
+            family_name="Last-new",
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
+        # Create a profile with email/first/last name already set
+        lti_profile = LtiProfile.objects.get_or_create_from_claims(
+            iss=id_token["iss"],
+            aud=id_token["aud"],
+            sub=id_token["sub"],
+            email="already@set.com",
+            first_name="First-old",
+            last_name="Last-old",
+        )
+        user_profile = UserProfileFactory(user=lti_profile.user)
+        assert user_profile.user.first_name == "First-old"
+        assert user_profile.user.last_name == "Last-old"
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        assert resp.status_code == 302
+        redirect_uri = reverse(
+            "lti_1p3_provider:lti-display",
+            kwargs={
+                "course_id": str(factories.COURSE_KEY),
+                "usage_id": str(factories.USAGE_KEY),
+            },
+        )
+        assert resp.url == f"http://localhost{redirect_uri}"
+        fetched_profile = LtiProfile.objects.get_from_claims(
+            iss=id_token["iss"], aud=id_token["aud"], sub=id_token["sub"]
+        )
+        assert fetched_profile == lti_profile
+        assert fetched_profile.user.first_name == "First-new"
+        assert fetched_profile.user.last_name == "Last-new"
 
     def test_successful_launch_no_gate(self, client):
         """Test successsful launch with no gate in place"""

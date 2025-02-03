@@ -160,19 +160,25 @@ class LtiToolLaunchView(LtiToolView):
         """
 
         email_claim = self.launch_data.get("email", "")
-        profile = LtiProfile.objects.get_or_create_from_claims(
+        first_name = self.launch_data.get("given_name", "")
+        last_name = self.launch_data.get("family_name", "")
+        lti_profile = LtiProfile.objects.get_or_create_from_claims(
             iss=self.launch_data["iss"],
             aud=self.launch_data["aud"],
             sub=self.launch_data["sub"],
             email=email_claim,
+            first_name=first_name,
+            last_name=last_name,
         )
-
         # Make sure email is updated in LtiProfile and UserProfile
         if email_claim:
-            if profile.email != email_claim:
-                profile.email = email_claim
-                profile.save()
-            self._update_or_create_user_profile(profile, email_claim)
+            if lti_profile.email != email_claim:
+                lti_profile.email = email_claim
+                lti_profile.save()
+            self._update_or_create_user_profile(lti_profile, email_claim)
+
+        # Ensure user's first/last name is updated if passed
+        self._update_user_first_last_name(lti_profile.user, first_name, last_name)
 
         edx_user = authenticate(
             self.request,
@@ -223,6 +229,26 @@ class LtiToolLaunchView(LtiToolView):
             profile,
             profile.id,
         )
+
+    def _update_user_first_last_name(
+        self, user: User, first_name: str, last_name: str
+    ) -> None:
+        """Update user's first and last name if they are different than stored"""
+
+        # Ensure user's first/last name is updated if passed
+        changed = False
+        if user.first_name != first_name:
+            user.first_name = first_name
+            log.info("Updated first name for LTI user %s", user.username)
+            changed = True
+
+        if user.last_name != last_name:
+            user.last_name = last_name
+            log.info("Updated last name for LTI user %s", user.username)
+            changed = True
+
+        if changed:
+            user.save()
 
     def _bad_request_response(self):
         """
