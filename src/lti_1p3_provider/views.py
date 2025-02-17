@@ -175,7 +175,11 @@ class LtiToolLaunchView(LtiToolView):
             if lti_profile.email != email_claim:
                 lti_profile.email = email_claim
                 lti_profile.save()
-            self._update_or_create_user_profile(lti_profile, email_claim)
+
+        # Ensure UserProfile is updated w/ email and full name
+        self._update_or_create_user_profile(
+            lti_profile, email_claim, first_name, last_name
+        )
 
         # Ensure user's first/last name is updated if passed
         self._update_user_first_last_name(lti_profile.user, first_name, last_name)
@@ -201,34 +205,52 @@ class LtiToolLaunchView(LtiToolView):
         return edx_user
 
     def _update_or_create_user_profile(
-        self, profile: LtiProfile, email_claim: str
+        self, lti_profile: LtiProfile, email_claim: str, first_name: str, last_name: str
     ) -> None:
-        """Update or create the LTI_1P3_EMAIL_META_KEY field on the UserProfile.meta"""
+        """Update/create the User's edx UserProfile data"""
+        full_name = self._create_user_name(first_name, last_name)
         try:
-            user_profile = profile.user.profile
+            user_profile = lti_profile.user.profile
         except UserProfile.DoesNotExist:
-            meta = json.dumps({LTI_1P3_EMAIL_META_KEY: email_claim})
-            user_profile = UserProfile.objects.create(user=profile.user, meta=meta)
+            if email_claim:
+                meta = json.dumps({LTI_1P3_EMAIL_META_KEY: email_claim})
+            else:
+                meta = json.dumps({})
+            user_profile = UserProfile.objects.create(
+                user=lti_profile.user, meta=meta, name=full_name
+            )
             log.info(
                 "Created UserProfile for LTI profile %s (id=%s)",
-                profile,
-                profile.id,
+                lti_profile,
+                lti_profile.id,
             )
             return
 
+        changed = False
         meta = user_profile.get_meta()
-        if meta.get(LTI_1P3_EMAIL_META_KEY, "") == email_claim:
-            return
+        if meta.get(LTI_1P3_EMAIL_META_KEY, "") != email_claim:
+            meta[LTI_1P3_EMAIL_META_KEY] = email_claim
+            user_profile.set_meta(meta)
+            log.info(
+                "Updated email for LTI user %s (id=%s)", lti_profile, lti_profile.id
+            )
+            changed = True
 
-        meta[LTI_1P3_EMAIL_META_KEY] = email_claim
-        user_profile.set_meta(meta)
-        user_profile.save()
-        log.info(
-            "Updated UserProfile %s for LTI profile %s (id=%s)",
-            LTI_1P3_EMAIL_META_KEY,
-            profile,
-            profile.id,
-        )
+        if user_profile.name != full_name:
+            user_profile.name = full_name
+            log.info(
+                "Updated Profile name for LTI user %s (id=%s)",
+                lti_profile,
+                lti_profile.id,
+            )
+            changed = True
+
+        if changed:
+            user_profile.save()
+
+    def _create_user_name(self, first_name: str, last_name: str) -> str:
+        """Create a user name based on first and last name"""
+        return f"{first_name} {last_name}" if first_name or last_name else ""
 
     def _update_user_first_last_name(
         self, user: User, first_name: str, last_name: str

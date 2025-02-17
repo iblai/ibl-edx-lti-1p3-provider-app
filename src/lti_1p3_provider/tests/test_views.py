@@ -358,6 +358,7 @@ class TestLtiToolLaunchView:
         assert lti_profile.email == ""
         assert lti_profile.user.first_name == "First"
         assert lti_profile.user.last_name == "Last"
+        assert lti_profile.user.profile.name == "First Last"
 
     def test_successful_launch_with_first_and_last_name_updates_when_exists(
         self, client
@@ -389,7 +390,6 @@ class TestLtiToolLaunchView:
         user_profile = UserProfileFactory(user=lti_profile.user)
         assert user_profile.user.first_name == "First-old"
         assert user_profile.user.last_name == "Last-old"
-
         resp = client.post(self.launch_endpoint, payload)
 
         assert resp.status_code == 302
@@ -407,6 +407,7 @@ class TestLtiToolLaunchView:
         assert fetched_profile == lti_profile
         assert fetched_profile.user.first_name == "First-new"
         assert fetched_profile.user.last_name == "Last-new"
+        assert fetched_profile.user.profile.name == "First-new Last-new"
 
     def test_successful_launch_no_gate(self, client):
         """Test successsful launch with no gate in place"""
