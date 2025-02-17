@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 2.3.3
+### Changed
+- [#32](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/32): Update `UserProfile.name` with `{given_name} {family_name}` if present in claims
+
 ## 2.3.2
 ### Changed
 - [#30](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/30): Store `given_name` and `family_name` claims on `User` object if present
