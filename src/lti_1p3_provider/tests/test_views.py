@@ -28,6 +28,10 @@ from lti_1p3_provider.api.ssl_services import (
     generate_private_key_pem,
     priv_to_public_key_pem,
 )
+from lti_1p3_provider.error_response import (
+    MISSING_SESSION_COOKIE_ERR_MSG,
+    get_contact_support_msg,
+)
 from lti_1p3_provider.models import LtiGradedResource, LtiProfile
 from lti_1p3_provider.session_access import LTI_SESSION_KEY
 from lti_1p3_provider.views import (
@@ -111,7 +115,7 @@ class TestLtiToolLoginView:
         )
         assert target_link_uri == qps_in["target_link_uri"]
         assert qps["redirect_uri"] == [
-            f'http://testserver{reverse("lti_1p3_provider:lti-launch")}'
+            f"http://testserver{reverse('lti_1p3_provider:lti-launch')}"
         ]
 
         # Just make sure these aren't empty
@@ -458,6 +462,30 @@ class TestLtiToolLaunchView:
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "LTI Launch Gate Error"
         assert resp.status_code == 403
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "test-cache",
+            }
+        },
+        CONTACT_EMAIL="test@override.com",
+    )
+    def test_missing_cookie_displays_custom_error(self, client):
+        """If missing cookie, displays custom error"""
+        # Enable an in memory cache
+        payload = self._get_payload(factories.COURSE_KEY, factories.USAGE_KEY)
+
+        resp = client.post(self.launch_endpoint, payload, secure=True)
+
+        expected = (
+            f"{MISSING_SESSION_COOKIE_ERR_MSG.strip('.')}. {get_contact_support_msg()}"
+        )
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("p").text == expected
+
+        assert resp.status_code == 400
 
     def test_missing_course_id_in_target_link_uri_returns_400(self, client):
         """If the course_id missing in target_link_uri, 400 is returned"""
