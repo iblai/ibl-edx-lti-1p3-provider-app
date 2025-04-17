@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 2.3.4
+### Changed
+- [#35](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/35): Show user friendly missing session-cookie specific error when lti1p3-session-id is missing
+
 ## 2.3.3
 ### Changed
 - [#32](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/32): Update `UserProfile.name` with `{given_name} {family_name}` if present in claims
