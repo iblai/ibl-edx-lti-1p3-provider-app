@@ -10,7 +10,6 @@ from urllib import parse
 from common.djangoapps.student.models import UserProfile
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login
-from django.db import transaction
 from django.http import (
     Http404,
     HttpResponse,
@@ -40,7 +39,12 @@ from pylti1p3.contrib.django import (
 from pylti1p3.exception import LtiException, OIDCException
 
 from .error_formatter import reformat_error
-from .error_response import get_lti_error_response, render_edx_error
+from .error_response import (
+    MISSING_SESSION_COOKIE_ERR_MSG,
+    get_contact_support_msg,
+    get_lti_error_response,
+    render_edx_error,
+)
 from .exceptions import MissingSessionError
 from .jwks import get_jwks_for_org
 from .models import LaunchGate, LtiGradedResource, LtiProfile
@@ -119,10 +123,7 @@ class LtiToolLoginView(LtiToolView):
             return render_edx_error(
                 request,
                 title="Invalid LTI Login Request",
-                error=(
-                    f"{exc}. Please contact your technical support for additional "
-                    "assistance."
-                ),
+                error=f"{exc}. {get_contact_support_msg()}",
                 status=400,
             )
 
@@ -330,10 +331,13 @@ class LtiToolLaunchView(LtiToolView):
         except LtiException as exc:
             log.error("LTI 1.3: Tool launch failed: %s", exc)
             errormsg = reformat_error(str(exc))
-            errormsg = (
-                f"{errormsg}. Please contact your technical support for additional "
-                "assistance."
-            )
+            # Handle missing cookie error raised by pylti1p3
+            if (
+                errormsg
+                == f"Missing {self.lti_tool_storage.get_session_cookie_name()} cookie"
+            ):
+                errormsg = MISSING_SESSION_COOKIE_ERR_MSG
+            errormsg = f"{errormsg.strip('.')}. {get_contact_support_msg()}"
             return get_lti_error_response(
                 request, self.launch_data, errormsg=errormsg, status=400
             )
@@ -414,8 +418,7 @@ class LtiToolLaunchView(LtiToolView):
         for scope in required_scopes:
             if scope not in endpoint["scope"]:
                 log.info(
-                    "LTI 1.3: AGS: LTI platform does not support a required "
-                    "scope: %s",
+                    "LTI 1.3: AGS: LTI platform does not support a required scope: %s",
                     scope,
                 )
                 return
