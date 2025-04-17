@@ -3,8 +3,15 @@ from __future__ import annotations
 from typing import Any
 from urllib import parse
 
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
+
+MISSING_SESSION_COOKIE_ERR_MSG = (
+    "Oops! It looks like you’re using a browser or privacy "
+    "setting that’s blocking third-party cookies. Please try switching to a standard browsing "
+    "window (non-incognito) or adjust your browser settings to allow cookies for this page."
+)
 
 
 class LTIErrorRedirect(HttpResponseRedirect):
@@ -77,6 +84,18 @@ def _get_launch_presentation(launch_data: dict) -> dict:
     return launch_data.get(
         "https://purl.imsglobal.org/spec/lti/claim/launch_presentation", {}
     )
+
+
+def get_contact_support_msg(support_email: str = "") -> str:
+    """Return the 'contact support' error message
+
+    Params:
+        support_email (str): Defaults to settings.CONTACT_EMAIL
+    """
+    support_email = support_email or getattr(
+        settings, "CONTACT_EMAIL", "contact@example.local"
+    )
+    return f"Need more help? Contact our support team at {support_email}."
 
 
 def render_edx_error(
