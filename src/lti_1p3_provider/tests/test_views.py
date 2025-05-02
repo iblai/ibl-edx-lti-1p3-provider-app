@@ -238,6 +238,41 @@ class TestLtiToolLaunchView:
         assert lti_profile.email == email
         assert lti_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY] == email
 
+    def test_successful_launch_with_email_null_is_allowed(self, client):
+        """If email claim provided, sets it in the LtiProfile and UserProfile
+
+        User does not yet exist, so User, LtiProfile, and UserProfile are created
+        """
+        email = None
+        target_link_uri = _get_target_link_uri(
+            str(factories.COURSE_KEY), str(factories.USAGE_KEY)
+        )
+        id_token = factories.IdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            target_link_uri=target_link_uri,
+            email=email,
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        assert resp.status_code == 302
+        redirect_uri = reverse(
+            "lti_1p3_provider:lti-display",
+            kwargs={
+                "course_id": str(factories.COURSE_KEY),
+                "usage_id": str(factories.USAGE_KEY),
+            },
+        )
+        assert resp.url == f"http://localhost{redirect_uri}"
+        lti_profile = LtiProfile.objects.get_from_claims(
+            iss=id_token["iss"], aud=id_token["aud"], sub=id_token["sub"]
+        )
+        assert lti_profile.email == ""
+        assert lti_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY] == email
+
     def test_existing_user_profile_with_no_email_gets_updated(self, client):
         """If email claim provided, updates the existing LtiProfile and UserProfile"""
         email = "test@example.com"
