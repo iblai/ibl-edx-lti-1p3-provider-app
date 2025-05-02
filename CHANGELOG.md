@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 2.3.5
+### Changed
+- [#37](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/37): Handle email claim being `null`
+
 ## 2.3.4
 ### Changed
 - [#35](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/35): Show user friendly missing session-cookie specific error when lti1p3-session-id is missing
