@@ -32,7 +32,7 @@ from lti_1p3_provider.error_response import (
     MISSING_SESSION_COOKIE_ERR_MSG,
     get_contact_support_msg,
 )
-from lti_1p3_provider.models import LtiGradedResource, LtiProfile
+from lti_1p3_provider.models import EDX_LTI_EMAIL_DOMAIN, LtiGradedResource, LtiProfile
 from lti_1p3_provider.session_access import LTI_SESSION_KEY
 from lti_1p3_provider.views import (
     LTI_1P3_EMAIL_META_KEY,
@@ -239,10 +239,7 @@ class TestLtiToolLaunchView:
         assert lti_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY] == email
 
     def test_successful_launch_with_email_null_is_allowed(self, client):
-        """If email claim provided, sets it in the LtiProfile and UserProfile
-
-        User does not yet exist, so User, LtiProfile, and UserProfile are created
-        """
+        """If email claim is null, it is allowed and the user gets a default email"""
         email = None
         target_link_uri = _get_target_link_uri(
             str(factories.COURSE_KEY), str(factories.USAGE_KEY)
@@ -271,7 +268,7 @@ class TestLtiToolLaunchView:
             iss=id_token["iss"], aud=id_token["aud"], sub=id_token["sub"]
         )
         assert lti_profile.email == ""
-        assert lti_profile.user.profile.get_meta()[LTI_1P3_EMAIL_META_KEY] == email
+        assert lti_profile.user.email.endswith(f"@{EDX_LTI_EMAIL_DOMAIN}")
 
     def test_existing_user_profile_with_no_email_gets_updated(self, client):
         """If email claim provided, updates the existing LtiProfile and UserProfile"""
