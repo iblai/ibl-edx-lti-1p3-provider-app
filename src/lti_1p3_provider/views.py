@@ -160,7 +160,7 @@ class LtiToolLaunchView(LtiToolView):
         authenticate the LTI user associated with it.
         """
 
-        email_claim = self.launch_data.get("email", "")
+        email_claim = self.launch_data.get("email", "") or ""  # can't allow null email
         first_name = self.launch_data.get("given_name", "")
         last_name = self.launch_data.get("family_name", "")
         lti_profile = LtiProfile.objects.get_or_create_from_claims(
