@@ -205,13 +205,13 @@ class TestLtiKeyViews(BaseView):
         assert LtiKeyOrg.objects.count() == 0
         assert LtiToolKey.objects.count() == 0
 
-    def test_deleting_key_referened_by_another_tool_returns_400(
+    def test_deleting_key_referenced_by_another_tool_returns_400(
         self, client, admin_token
     ):
-        """If a key is referenced by another tool it can't be deleted"""
+        """If a key is referenced by a tool it can't be deleted"""
 
         key_org = factories.LtiKeyOrgFactory()
-        tool = factories.LtiToolFactory(lti_key=key_org.key)
+        tool = factories.LtiToolFactory(tool_key=key_org.key)
         org = key_org.org
         key = key_org.key
         endpoint = self._get_detail_endpoint(org.short_name, key.pk)
@@ -219,10 +219,15 @@ class TestLtiKeyViews(BaseView):
         resp = self.request(client, "delete", endpoint, token=admin_token)
 
         assert resp.status_code == 400, resp.json()
-        breakpoint()
+        data = resp.json()[0]
+        assert data.startswith(
+            f"Key is currently used by the following tools: {tool.title}"
+        )
 
+        # Nothing was deleted
         assert LtiKeyOrg.objects.count() == 1
         assert LtiToolKey.objects.count() == 1
+        tool.refresh_from_db()
 
     def test_delete_key_not_in_target_org_returns_404(self, client, admin_token):
         """Delete removes LtiToolKey and LtiKeyOrg for specified enttiy, returns 204"""
