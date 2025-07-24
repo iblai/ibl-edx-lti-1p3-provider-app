@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 2.3.6
+### Changed
+- [#34](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/34): Don't allow LtiKey's to be deleted if they are still referenced by an LTITool
+
 ## 2.3.5
 ### Changed
 - [#37](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/37): Handle email claim being `null`

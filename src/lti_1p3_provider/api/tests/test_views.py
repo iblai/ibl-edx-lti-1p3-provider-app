@@ -6,14 +6,15 @@ from typing import Any
 import pytest
 from common.djangoapps.student.tests.factories import UserFactory
 from django.urls import reverse
-from lti_1p3_provider.models import LtiKeyOrg, LtiToolOrg
-from lti_1p3_provider.tests import factories
 from openedx.core.djangoapps.oauth_dispatch.tests.factories import (
     AccessTokenFactory,
     ApplicationFactory,
 )
 from organizations.tests.factories import OrganizationFactory
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
+
+from lti_1p3_provider.models import LtiKeyOrg, LtiToolOrg
+from lti_1p3_provider.tests import factories
 
 
 @pytest.fixture(autouse=True)
@@ -203,6 +204,30 @@ class TestLtiKeyViews(BaseView):
 
         assert LtiKeyOrg.objects.count() == 0
         assert LtiToolKey.objects.count() == 0
+
+    def test_deleting_key_referenced_by_another_tool_returns_400(
+        self, client, admin_token
+    ):
+        """If a key is referenced by a tool it can't be deleted"""
+
+        key_org = factories.LtiKeyOrgFactory()
+        tool = factories.LtiToolFactory(tool_key=key_org.key)
+        org = key_org.org
+        key = key_org.key
+        endpoint = self._get_detail_endpoint(org.short_name, key.pk)
+
+        resp = self.request(client, "delete", endpoint, token=admin_token)
+
+        assert resp.status_code == 400, resp.json()
+        data = resp.json()[0]
+        assert data.startswith(
+            f"Key is currently used by the following tools: {tool.title}"
+        )
+
+        # Nothing was deleted
+        assert LtiKeyOrg.objects.count() == 1
+        assert LtiToolKey.objects.count() == 1
+        tool.refresh_from_db()
 
     def test_delete_key_not_in_target_org_returns_404(self, client, admin_token):
         """Delete removes LtiToolKey and LtiKeyOrg for specified enttiy, returns 204"""
