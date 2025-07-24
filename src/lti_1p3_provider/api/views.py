@@ -1,6 +1,7 @@
 from django.utils.decorators import method_decorator
 from openedx.core.lib.api.authentication import BearerAuthentication
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAdminUser
 from rest_framework.viewsets import ModelViewSet
 
@@ -25,6 +26,20 @@ class LtiKeyViewSet(ModelViewSet):
         ctx = super().get_serializer_context()
         ctx["org_short_name"] = self.kwargs["org_short_name"]
         return ctx
+
+    def perform_destroy(self, instance):
+        """Ensure that we delete the key only if it's not used by any tool."""
+        existing_tools = LtiTool.objects.filter(tool_key=instance).values_list(
+            "title", flat=True
+        )
+        if existing_tools:
+            raise ValidationError(
+                (
+                    f"Key is currently used by the following tools: {', '.join(existing_tools)}. "
+                    "Please assign a different key to these tools before deleting this one."
+                )
+            )
+        super().perform_destroy(instance)
 
 
 @method_decorator(requires_lti_enabled, name="dispatch")
