@@ -334,7 +334,7 @@ class LtiToolLaunchView(LtiToolView):
             errormsg = reformat_error(str(exc))
             # Handle missing cookie error raised by pylti1p3
             # Actual string is "Missing %s cookie session-id"
-            if re.match(r"Missing .+ cookie session-id", errormsg):
+            if re.match(r"Missing .* cookie session-id", errormsg):
                 title = "Oops, this didn't work! Invalid LTI tool launch."
                 errormsg = MISSING_SESSION_COOKIE_ERR_MSG
             errormsg = f"{errormsg.strip('.')}. {get_contact_support_msg()}"
