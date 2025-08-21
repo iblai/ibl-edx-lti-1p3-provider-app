@@ -8,9 +8,9 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 
 MISSING_SESSION_COOKIE_ERR_MSG = (
-    "Oops! It looks like you’re using a browser or privacy "
-    "setting that’s blocking third-party cookies. Please try switching to a standard browsing "
-    "window (non-incognito) or adjust your browser settings to allow cookies for this page."
+    "Safari and private/incognito windows don't support this launch (yet!). "
+    "Please open the tool again in a regular Chrome, Edge, or Firefox window. "
+    "Thanks for your patience while we improve this experience."
 )
 
 

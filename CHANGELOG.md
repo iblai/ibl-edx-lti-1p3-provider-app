@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.3.7
+### Fixed
+- [#40](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/40): Fix session cookie error pattern matching to properly catch missing lti1p3-session-id cookie errors
+    - Implements regex pattern matching for "Missing .+ cookie session-id" error messages from pylti1p3
+    - Updates error message to be user-friendly about Safari and private/incognito windows
+
 ## 2.3.6
 ### Changed
 - [#34](https://github.com/ibleducation/ibl-edx-lti-1p3-provider-app/issues/34): Don't allow LtiKey's to be deleted if they are still referenced by an LTITool
