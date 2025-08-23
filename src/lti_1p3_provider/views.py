@@ -330,16 +330,16 @@ class LtiToolLaunchView(LtiToolView):
 
         except LtiException as exc:
             log.error("LTI 1.3: Tool launch failed: %s", exc)
+            title = "Invalid LTI Tool Launch"
             errormsg = reformat_error(str(exc))
             # Handle missing cookie error raised by pylti1p3
-            if (
-                errormsg
-                == f"Missing {self.lti_tool_storage.get_session_cookie_name()} cookie"
-            ):
+            # Actual string is "Missing %s cookie session-id"
+            if re.match(r"Missing .* cookie session-id", errormsg):
+                title = "Oops, this didn't work! Invalid LTI tool launch."
                 errormsg = MISSING_SESSION_COOKIE_ERR_MSG
             errormsg = f"{errormsg.strip('.')}. {get_contact_support_msg()}"
             return get_lti_error_response(
-                request, self.launch_data, errormsg=errormsg, status=400
+                request, self.launch_data, title=title, errormsg=errormsg, status=400
             )
 
         except JWException as exc:
