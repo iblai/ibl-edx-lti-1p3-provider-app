@@ -98,6 +98,7 @@ class LtiToolLoginView(LtiToolView):
     URL.
     """
 
+    # TODO: Remove this class var; unused
     LAUNCH_URI_PARAMETER = "target_link_uri"
 
     def get(self, request):
@@ -302,13 +303,24 @@ class LtiToolLaunchView(LtiToolView):
         return render_edx_error(request, title, error, status=405)
 
     # pylint: disable=attribute-defined-outside-init
-    def post(self, request):
+    def post(self, request, org_short_code: str | None = None):
         """
         Process LTI platform launch requests.
         """
 
         try:
             self.launch_message = self.get_launch_message()
+
+            if self.launch_message.is_deep_link_launch():
+                if not org_short_code:
+                    log.error("Deep linking launch missing org short code in URL")
+                    errormsg = "Deep linking launch missing organization in URL"
+                    return get_lti_error_response(
+                        request, self.launch_data, errormsg=errormsg, status=400
+                    )
+                return self._handle_deep_linking_launch(org_short_code)
+
+            # Regular resource link launch
             course_id, usage_id = self._get_course_and_usage_id()
             course_key, usage_key = parse_course_and_usage_keys(course_id, usage_id)
             log.info(
@@ -483,6 +495,27 @@ class LtiToolLaunchView(LtiToolView):
             )
 
         return True
+
+    def _handle_deep_linking_launch(self, org_short_code: str):
+        """
+        Handle LTI Deep Linking launch requests.
+
+        TODO: Implement full deep linking functionality:
+        - Validate user roles (instructor/content developer)
+        - Validate tool can access organization
+        - Present content selection interface
+        - Return deep linking response with selected content
+        """
+        log.info("LTI 1.3: Deep linking launch detected - returning stub response")
+
+        # For now, return a simple error response to preserve existing behavior
+        return get_lti_error_response(
+            self.request,
+            self.launch_data,
+            title="Deep Linking Not Yet Implemented",
+            errormsg="Deep linking functionality is under development. Please use regular LTI resource links for now.",
+            status=501,  # Not Implemented
+        )
 
 
 class DisplayTargetResource(LtiToolView):
