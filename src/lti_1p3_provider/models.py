@@ -55,10 +55,11 @@ import random
 import string
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
 from django.utils.translation import gettext_lazy as _
 from opaque_keys.edx.django.models import CourseKeyField, UsageKeyField
-from opaque_keys.edx.keys import UsageKey
+from opaque_keys.edx.keys import CourseKey, UsageKey
 from organizations.models import Organization
 from pylti1p3.contrib.django import DjangoDbToolConf, DjangoMessageLaunch
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
@@ -373,6 +374,24 @@ def generate_random_edx_username():
     return username
 
 
+def validate_course_keys(course_keys: list[str]) -> None:
+    """Validate a list of CourseKey strings"""
+    for key in course_keys:
+        try:
+            CourseKey.from_string(key)
+        except ValueError:
+            raise ValidationError(f"Invalid CourseKey: {key}")
+
+
+def validate_usage_keys(usage_keys: list[str]) -> None:
+    """Validate a list of UsageKey strings"""
+    for key in usage_keys:
+        try:
+            UsageKey.from_string(key)
+        except ValueError:
+            raise ValidationError(f"Invalid UsageKey: {key}")
+
+
 class LaunchGate(models.Model):
     """Stores information about which xblocks a tool can access"""
 
@@ -386,11 +405,13 @@ class LaunchGate(models.Model):
         default=list,
         help_text="Allows tool to access these specific UsageKeys",
         blank=True,
+        validators=[validate_usage_keys],
     )
     allowed_courses = models.JSONField(
         default=list,
         help_text="Allows tool to access these specific CourseKey's",
         blank=True,
+        validators=[validate_course_keys],
     )
     allowed_orgs = models.JSONField(
         default=list,
@@ -414,6 +435,30 @@ class LaunchGate(models.Model):
             allowed_orgs = usage_key.course_key.org in self.allowed_orgs
 
         return allowed_keys or allowed_courses or allowed_orgs
+
+    def can_access_content_in_org(self, org_short_name: str) -> bool:
+        """Return True if Tool can access any content in the given org
+
+        Args:
+            org_short_name: The organization short name to check access for
+
+        Returns:
+            bool: True if tool has access to the organization, False otherwise
+        """
+        if org_short_name in self.allowed_orgs:
+            return True
+
+        for course_key in self.allowed_courses:
+            key = CourseKey.from_string(course_key)
+            if key.org == org_short_name:
+                return True
+
+        for usage_key in self.allowed_keys:
+            key = UsageKey.from_string(usage_key)
+            if key.course_key.org == org_short_name:
+                return True
+
+        return False
 
 
 class LtiToolOrg(models.Model):
