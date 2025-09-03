@@ -55,6 +55,11 @@ log = logging.getLogger(__name__)
 User = get_user_model()
 
 LTI_1P3_EMAIL_META_KEY = "lti_1p3_email"
+DEFAULT_LTI_DEEP_LINKING_ACCEPT_ROLES = [
+    "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Instructor",
+    "http://purl.imsglobal.org/vocab/lis/v2/membership#ContentDeveloper",
+    "http://purl.imsglobal.org/vocab/lis/v2/membership#Manager",
+]
 
 
 def requires_lti_enabled(view_func):
@@ -496,17 +501,100 @@ class LtiToolLaunchView(LtiToolView):
 
         return True
 
+    def _validate_deep_linking_roles(self) -> bool:
+        """
+        Validate user has appropriate roles for deep linking.
+
+        Checks LTI roles claim against configured acceptable roles for deep linking.
+
+        Returns:
+            bool: True if user has valid roles, False otherwise
+        """
+        roles_claim = "https://purl.imsglobal.org/spec/lti/claim/roles"
+        user_roles = self.launch_data.get(roles_claim, [])
+        accepted_roles = getattr(
+            settings,
+            "LTI_DEEP_LINKING_ACCEPT_ROLES",
+            DEFAULT_LTI_DEEP_LINKING_ACCEPT_ROLES,
+        )
+
+        has_valid_role = any(role in accepted_roles for role in user_roles)
+
+        if not has_valid_role:
+            log.warning(
+                "Deep linking access denied: user roles %s not in accepted roles %s",
+                user_roles,
+                accepted_roles,
+            )
+
+        return has_valid_role
+
+    def _validate_tool_org_access(self, org_short_code: str) -> bool:
+        """
+        Validate tool has access to the organization.
+
+        Args:
+            org_short_code: Organization short code to validate access for
+
+        Returns:
+            bool: True if tool can access organization, False otherwise
+        """
+        tool = self.lti_tool_config.get_lti_tool(
+            iss=self.launch_message.get_iss(),
+            client_id=self.launch_message.get_client_id(),
+        )
+
+        try:
+            return tool.launch_gate.can_access_content_in_org(org_short_code)
+        except LaunchGate.DoesNotExist:
+            log.info(
+                "Tool (iss=%s, client_id=%s) has no launch gate for org access; proceeding",
+                tool.issuer,
+                tool.client_id,
+            )
+            return True
+
     def _handle_deep_linking_launch(self, org_short_code: str):
         """
         Handle LTI Deep Linking launch requests.
 
-        TODO: Implement full deep linking functionality:
-        - Validate user roles (instructor/content developer)
-        - Validate tool can access organization
+        TODO: Implement remaining functionality:
         - Present content selection interface
         - Return deep linking response with selected content
         """
-        log.info("LTI 1.3: Deep linking launch detected - returning stub response")
+        iss = self.launch_message.get_iss()
+        client_id = self.launch_message.get_client_id()
+        log.info(
+            "LTI 1.3: Deep linking launch for org=%s, issuer=%s, client_id=%s",
+            org_short_code,
+            iss,
+            client_id,
+        )
+
+        if not self._validate_deep_linking_roles():
+            # TODO: Add accepted roles to error message
+            return get_lti_error_response(
+                self.request,
+                self.launch_data,
+                title="Insufficient Permissions",
+                errormsg="You do not have the required role to access deep linking. Contact your administrator.",
+                status=403,
+            )
+
+        if not self._validate_tool_org_access(org_short_code):
+            log.warning(
+                "No valid launch gates for org %s, tool (issuer=%s, client_id=%s)",
+                org_short_code,
+                iss,
+                client_id,
+            )
+            return get_lti_error_response(
+                self.request,
+                self.launch_data,
+                title="Organization Access Denied",
+                errormsg=f"Tool does not have permission to access content in organization '{org_short_code}'. Contact your administrator.",
+                status=403,
+            )
 
         # For now, return a simple error response to preserve existing behavior
         return get_lti_error_response(
