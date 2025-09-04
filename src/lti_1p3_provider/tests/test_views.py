@@ -1201,3 +1201,26 @@ class TestLtiDeepLinkLaunch:
 
         assert resp.status_code == 302
         assert resp.url.startswith("/lti/1p3/deep-linking/select-content/")
+
+    def test_deep_linking_launch_with_at_least_one_allowed_role_succeeds(self, client):
+        """Test deep linking launch succeeds with at least one allowed role"""
+        # Setup LaunchGate to allow access
+        factories.LaunchGateFactory(
+            tool=self.tool, allowed_orgs=[factories.COURSE_KEY.org]
+        )
+        # Create token with instructor role
+        id_token = factories.DeepLinkIdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            roles=[
+                "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Instructor",  # allowed
+                "http://purl.imsglobal.org/vocab/lis/v2/membership#Learner",  # not allowed
+            ],
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
+
+        resp = client.post(self.deep_link_launch_endpoint, payload)
+
+        assert resp.status_code == 302
+        assert resp.url.startswith("/lti/1p3/deep-linking/select-content/")
