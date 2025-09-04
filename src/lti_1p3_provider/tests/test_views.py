@@ -74,7 +74,7 @@ def override_features(**kwargs):
     return override_settings(FEATURES={**settings.FEATURES, **kwargs})
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def enable_lti_provider():
     """Enables the Lti 1.3 Provider"""
     backends = settings.AUTHENTICATION_BACKENDS
@@ -86,7 +86,6 @@ def enable_lti_provider():
 
 
 @pytest.mark.django_db
-@pytest.mark.usefixtures("enable_lti_provider")
 class TestLtiToolLoginView:
     endpoint = reverse("lti_1p3_provider:lti-login")
 
@@ -165,12 +164,11 @@ class TestLtiToolLoginView:
 
 
 @pytest.mark.django_db
-@pytest.mark.usefixtures("enable_lti_provider")
 @mock.patch(
     "pylti1p3.contrib.django.message_launch.DjangoSessionService",
     new=fakes.FakeDjangoSessionService,
 )
-class TestLtiToolLaunchView:
+class TestLtiBasicLaunch:
     launch_endpoint = reverse("lti_1p3_provider:lti-launch")
 
     def setup_method(self):
