@@ -33,7 +33,10 @@ from lti_1p3_provider.error_response import (
     get_contact_support_msg,
 )
 from lti_1p3_provider.models import EDX_LTI_EMAIL_DOMAIN, LtiGradedResource, LtiProfile
-from lti_1p3_provider.session_access import LTI_SESSION_KEY
+from lti_1p3_provider.session_access import (
+    LTI_DEEP_LINKING_SESSION_PREFIX,
+    LTI_SESSION_KEY,
+)
 from lti_1p3_provider.views import (
     DEFAULT_LTI_DEEP_LINKING_ACCEPT_ROLES,
     LTI_1P3_EMAIL_META_KEY,
@@ -1123,6 +1126,8 @@ class TestLtiDeepLinkLaunch:
             tool=self.tool, allowed_orgs=[factories.COURSE_KEY.org]
         )
         payload = self._get_deep_link_payload()
+        # Nothing in the session before launch
+        assert not client.session.keys()
 
         resp = client.post(self.deep_link_launch_endpoint, payload)
 
@@ -1132,6 +1137,24 @@ class TestLtiDeepLinkLaunch:
         # Extract token from redirect URL
         token = resp.url.split("/")[-2]
         assert len(token) == 36  # UUID4 length
+
+        # Validate deep link session data
+        dl_session_key = [
+            k
+            for k in client.session.keys()
+            if k.startswith(LTI_DEEP_LINKING_SESSION_PREFIX)
+        ]
+        assert len(dl_session_key) == 1
+        ctx = client.session[dl_session_key[0]]
+        assert ctx["token"] == token
+        assert ctx["tool_info"] == {
+            "issuer": self.tool.issuer,
+            "client_id": self.tool.client_id,
+        }
+        assert ctx["launch_data"]
+        assert ctx["created_at"] is not None
+        assert ctx["expires_at"] is not None
+        assert ctx["expires_at"] >= ctx["created_at"]
 
     def test_no_launch_gate_for_tool_returns_403(self, client):
         """Test deep linking launch fails when LaunchGate does not exist"""
