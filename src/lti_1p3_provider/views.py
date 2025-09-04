@@ -830,12 +830,12 @@ class DeepLinkingContentSelectionView(View):
             DeepLinkingError: If validation fails with user-friendly message
         """
 
-        # Check if user is authenticated
+        # Could use login required decorator, but don't want the automatic redirects here so we
         if not self.request.user.is_authenticated:
             log.warning("Deep linking access denied: user not authenticated")
             raise DeepLinkingError(
                 title="Authentication Required",
-                message="Please log in to access this content selection page.",
+                message="Please perform a deep link launch from your learning platform.",
                 status_code=401,
             )
 
@@ -844,18 +844,23 @@ class DeepLinkingContentSelectionView(View):
         dl_context = self.request.session.get(session_key)
         if not dl_context:
             log.warning(
-                "Deep linking access denied: no context for token %s...", token[:8]
+                "Deep linking access denied: no deep linking session for token %s...",
+                token[:8],
             )
             raise DeepLinkingError(
                 title="Invalid Access Link",
                 message="This content selection link is invalid or expired. Please launch again from your learning platform.",
-                status_code=400,
+                status_code=404,
             )
 
+        tool_info = dl_context["tool_info"]
+        tool_text = f"issuer={tool_info['issuer']}, client_id={tool_info['client_id']}"
         # Validate token matches (extra security check)
         if dl_context.get("token") != token:
-            log.warning(
-                "Deep linking access denied: token mismatch for %s...", token[:8]
+            log.error(
+                "Deep linking access denied for Tool (%s): token mismatch for token %s...",
+                tool_text,
+                token[:8],
             )
             # Clear potentially corrupted session
             del self.request.session[session_key]
@@ -868,8 +873,9 @@ class DeepLinkingContentSelectionView(View):
         # Check if session hasn't expired
         expires_at = dl_context.get("expires_at")
         if not expires_at:
-            log.warning(
-                "Deep linking access denied: no expiration in context for token %s...",
+            log.error(
+                "Deep linking access denied for Tool (%s): no expiration in context for token %s...",
+                tool_text,
                 token[:8],
             )
             # Clear potentially corrupted session
@@ -877,21 +883,19 @@ class DeepLinkingContentSelectionView(View):
             raise DeepLinkingError(
                 title="Invalid Session",
                 message="Your content selection session is invalid. Please launch again from your learning platform.",
-                status_code=400,
+                status_code=500,
             )
 
-        tool = dl_context["tool_info"]
         if timezone.now().timestamp() > expires_at:
             log.info(
-                "Deep linking session expired for Tool (issuer=%s, client_id=%s), token %s...",
-                tool["issuer"],
-                tool["client_id"],
+                "Deep linking session expired for Tool (%s), token %s...",
+                tool_text,
                 token[:8],
             )
             # Clear expired session
             del self.request.session[session_key]
             raise DeepLinkingError(
-                title="Session Expired",
+                title="Deep Linking Session Expired",
                 message="Your content selection session has expired. Please launch again from your learning platform to select new content.",
                 status_code=403,
             )
