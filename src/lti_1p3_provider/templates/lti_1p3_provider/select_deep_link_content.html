@@ -1,0 +1,26 @@
+## mako
+<%page expression_filter="h"/>
+<%! from django.utils.translation import gettext as _
+from openedx.core.djangolib.markup import HTML, Text
+%>
+<%inherit file="/main.html" />
+<%namespace name='static' file='../static_content.html'/>
+<%!
+from django.utils.translation import gettext as _
+from openedx.core.djangolib.markup import HTML, Text
+%>
+
+
+<section class="container">
+  <section class="outside-app">
+    <h1>${title}</h1>
+    <form method="post" action="">
+      <input type="hidden" name="csrfmiddlewaretoken" value="${ csrf_token }">
+      <div class="form-group">
+        <label for="deep_link_content">${_('Select Deep Link Content')}:</label>
+        <select class="form-control" id="deep_link_content" name="deep_link_content">
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary">${_('Submit')}</button>
+  </section>
+</section>
