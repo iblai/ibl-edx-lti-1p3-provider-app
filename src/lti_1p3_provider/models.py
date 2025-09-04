@@ -436,30 +436,6 @@ class LaunchGate(models.Model):
 
         return allowed_keys or allowed_courses or allowed_orgs
 
-    def can_access_content_in_org(self, org_short_name: str) -> bool:
-        """Return True if Tool can access any content in the given org
-
-        Args:
-            org_short_name: The organization short name to check access for
-
-        Returns:
-            bool: True if tool has access to the organization, False otherwise
-        """
-        if org_short_name in self.allowed_orgs:
-            return True
-
-        for course_key in self.allowed_courses:
-            key = CourseKey.from_string(course_key)
-            if key.org == org_short_name:
-                return True
-
-        for usage_key in self.allowed_keys:
-            key = UsageKey.from_string(usage_key)
-            if key.course_key.org == org_short_name:
-                return True
-
-        return False
-
 
 class LtiToolOrg(models.Model):
     """Association between a Tool and an Organization

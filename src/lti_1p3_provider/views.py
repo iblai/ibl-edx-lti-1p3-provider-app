@@ -308,33 +308,20 @@ class LtiToolLaunchView(LtiToolView):
         return render_edx_error(request, title, error, status=405)
 
     # pylint: disable=attribute-defined-outside-init
-    def post(self, request, org_short_code: str | None = None):
+    def post(self, request):
         """
         Process LTI platform launch requests.
         """
 
         try:
             self.launch_message = self.get_launch_message()
+            log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
 
             if self.launch_message.is_deep_link_launch():
-                if not org_short_code:
-                    log.error("Deep linking launch missing org short code in URL")
-                    errormsg = "Deep linking launch missing organization in URL"
-                    return get_lti_error_response(
-                        request, self.launch_data, errormsg=errormsg, status=400
-                    )
-                return self._handle_deep_linking_launch(org_short_code)
+                return self._handle_deep_linking_launch()
 
             # Regular resource link launch
-            course_id, usage_id = self._get_course_and_usage_id()
-            course_key, usage_key = parse_course_and_usage_keys(course_id, usage_id)
-            log.info(
-                "LTI 1.3: issuer=%s, client_id=%s, Launch course=%s, block: id=%s",
-                self.launch_message.get_iss(),
-                self.launch_message.get_client_id(),
-                course_key,
-                usage_key,
-            )
+            return self._handle_basic_tool_launch()
 
         except InvalidKeyError as e:
             log.error("Invalid Launch Course or UsageKey - %s", e)
@@ -369,36 +356,6 @@ class LtiToolLaunchView(LtiToolView):
             return get_lti_error_response(
                 request, self.launch_data, errormsg=errormsg, status=500
             )
-
-        if not self._check_launch_gate(self.launch_message, usage_key):
-            log.warning(
-                "Tool (iss=%s, client_id=%s) cannot launch usage key: %s",
-                self.launch_message.get_iss(),
-                self.launch_message.get_client_id(),
-                usage_key,
-            )
-            errormsg = (
-                "You do not have permission to access this content. Please "
-                "contact your technical support for additional assistance."
-            )
-            return get_lti_error_response(
-                request,
-                self.launch_data,
-                title="LTI Launch Gate Error",
-                errormsg=errormsg,
-                status=403,
-            )
-
-        log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
-
-        edx_user = self._authenticate_and_login()
-
-        if not edx_user:
-            return self._bad_request_response()
-
-        self.handle_ags(course_key, usage_key)
-        self._set_session_access()
-        return redirect(self._get_target_link_uri())
 
     def _get_course_and_usage_id(self) -> tuple[str, str]:
         """Return course_id and usage_id from target_link_uri string"""
@@ -501,6 +458,55 @@ class LtiToolLaunchView(LtiToolView):
 
         return True
 
+    def _handle_basic_tool_launch(self):
+        """
+        Handle regular LTI resource link launch requests.
+        """
+        # Regular resource link launch - parse course and usage keys
+        course_id, usage_id = self._get_course_and_usage_id()
+        course_key, usage_key = parse_course_and_usage_keys(course_id, usage_id)
+        log.info(
+            "LTI 1.3: issuer=%s, client_id=%s, Launch course=%s, block: id=%s",
+            self.launch_message.get_iss(),
+            self.launch_message.get_client_id(),
+            course_key,
+            usage_key,
+        )
+
+        # Validate tool can access the requested usage key
+        if not self._check_launch_gate(self.launch_message, usage_key):
+            log.warning(
+                "Tool (iss=%s, client_id=%s) cannot launch usage key: %s",
+                self.launch_message.get_iss(),
+                self.launch_message.get_client_id(),
+                usage_key,
+            )
+            errormsg = (
+                "You do not have permission to access this content. Please "
+                "contact your technical support for additional assistance."
+            )
+            return get_lti_error_response(
+                self.request,
+                self.launch_data,
+                title="LTI Launch Gate Error",
+                errormsg=errormsg,
+                status=403,
+            )
+
+        # Authenticate and log in the user
+        edx_user = self._authenticate_and_login()
+        if not edx_user:
+            return self._bad_request_response()
+
+        # Handle AGS (Assignment and Grade Services) if available
+        self.handle_ags(course_key, usage_key)
+
+        # Set session access for the target resource
+        self._set_session_access()
+
+        # Redirect to the target content
+        return redirect(self._get_target_link_uri())
+
     def _validate_deep_linking_roles(self) -> bool:
         """
         Validate user has appropriate roles for deep linking.
@@ -529,15 +535,11 @@ class LtiToolLaunchView(LtiToolView):
 
         return has_valid_role
 
-    def _validate_tool_org_access(self, org_short_code: str) -> bool:
-        """
-        Validate tool has access to the organization.
-
-        Args:
-            org_short_code: Organization short code to validate access for
+    def _validate_has_accessible_content(self) -> bool:
+        """Return True if tool has entries in its launch date
 
         Returns:
-            bool: True if tool can access organization, False otherwise
+            bool: True if tool has entries in the launch gate, False otherwise
         """
         tool = self.lti_tool_config.get_lti_tool(
             iss=self.launch_message.get_iss(),
@@ -545,16 +547,26 @@ class LtiToolLaunchView(LtiToolView):
         )
 
         try:
-            return tool.launch_gate.can_access_content_in_org(org_short_code)
+            gate = tool.launch_gate
+            if not any(gate.allowed_keys, gate.allowed_courses, gate.allowed_orgs):
+                log.error(
+                    "Tool (iss=%s, client_id=%s) has empty LaunchGate; denying access",
+                    tool.issuer,
+                    tool.client_id,
+                )
+                return False
+
         except LaunchGate.DoesNotExist:
-            log.info(
-                "Tool (iss=%s, client_id=%s) has no launch gate for org access; proceeding",
+            log.error(
+                "Tool (iss=%s, client_id=%s) has no LaunchGate; denying access",
                 tool.issuer,
                 tool.client_id,
             )
-            return True
+            return False
 
-    def _handle_deep_linking_launch(self, org_short_code: str):
+        return True
+
+    def _handle_deep_linking_launch(self):
         """
         Handle LTI Deep Linking launch requests.
 
@@ -565,8 +577,7 @@ class LtiToolLaunchView(LtiToolView):
         iss = self.launch_message.get_iss()
         client_id = self.launch_message.get_client_id()
         log.info(
-            "LTI 1.3: Deep linking launch for org=%s, issuer=%s, client_id=%s",
-            org_short_code,
+            "LTI 1.3: Deep linking launch for Tool (issuer=%s, client_id=%s)",
             iss,
             client_id,
         )
@@ -581,20 +592,23 @@ class LtiToolLaunchView(LtiToolView):
                 status=403,
             )
 
-        if not self._validate_tool_org_access(org_short_code):
+        if not self._validate_has_accessible_content():
             log.warning(
-                "No valid launch gates for org %s, tool (issuer=%s, client_id=%s)",
-                org_short_code,
+                "Tool (issuer=%s, client_id=%s) has no accessible content in its launch gate",
                 iss,
                 client_id,
             )
             return get_lti_error_response(
                 self.request,
                 self.launch_data,
-                title="Organization Access Denied",
-                errormsg=f"Tool does not have permission to access content in organization '{org_short_code}'. Contact your administrator.",
+                title="No Accessible Content",
+                errormsg="Tool does not have access to any content. Please contact your administrator.",
                 status=403,
             )
+
+        edx_user = self._authenticate_and_login()
+        if not edx_user:
+            return self._bad_request_response()
 
         # For now, return a simple error response to preserve existing behavior
         return get_lti_error_response(
