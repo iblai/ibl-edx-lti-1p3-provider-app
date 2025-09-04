@@ -15,7 +15,6 @@ from openedx.core.djangolib.markup import HTML, Text
   <section class="outside-app">
     <h1>${title}</h1>
     <form method="post" action="">
-      <input type="hidden" name="csrfmiddlewaretoken" value="${ csrf_token }">
       <div class="form-group">
         <label for="deep_link_content">${_('Select Deep Link Content')}:</label>
         <select class="form-control" id="deep_link_content" name="deep_link_content">
