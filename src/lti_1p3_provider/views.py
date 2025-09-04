@@ -550,7 +550,7 @@ class LtiToolLaunchView(LtiToolView):
 
         try:
             gate = tool.launch_gate
-            if not any(gate.allowed_keys, gate.allowed_courses, gate.allowed_orgs):
+            if not any([gate.allowed_keys, gate.allowed_courses, gate.allowed_orgs]):
                 log.error(
                     "Tool (iss=%s, client_id=%s) has empty LaunchGate; denying access",
                     tool.issuer,
