@@ -1127,23 +1127,21 @@ class TestLtiDeepLinkLaunch:
 
         assert resp.status_code == 302
         # Should redirect to content selection with a token
-        assert resp.url.startswith(
-            "http://testserver/lti_1p3_provider/deep-linking/select-content/"
-        )
+        assert resp.url.startswith("/lti/1p3/deep-linking/select-content/")
         # Extract token from redirect URL
         token = resp.url.split("/")[-2]
         assert len(token) == 36  # UUID4 length
 
-    def test_deep_linking_launch_without_gate_access_returns_403(self, client):
-        """Test deep linking launch fails when LaunchGate denies access"""
+    def test_no_launch_gate_for_tool_returns_403(self, client):
+        """Test deep linking launch fails when LaunchGate does not exist"""
         # Create a gate that doesn't allow access to this org
-        factories.LaunchGateFactory(tool=self.tool, allowed_orgs=["other-org"])
         payload = self._get_deep_link_payload()
 
         resp = client.post(self.deep_link_launch_endpoint, payload)
 
         soup = BeautifulSoup(resp.content, "html.parser")
-        assert soup.find("h1").text == "LTI Launch Gate Error"
+        assert soup.find("h1").text == "No Accessible Content"
+        assert "tool does not have access to any content" in soup.find("p").text.lower()
         assert resp.status_code == 403
 
     def test_deep_linking_launch_with_learner_role_returns_403(self, client):
