@@ -5,7 +5,7 @@ Tests for LTI views.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest import mock
 from urllib import parse
 
@@ -42,6 +42,11 @@ from lti_1p3_provider.views import (
 
 from . import factories, fakes
 from .base import URL_LIB_LTI_JWKS
+
+
+def _get_session_middleware():
+    """Get Initialized SessionMiddleware"""
+    return SessionMiddleware(lambda r: None)
 
 
 def _get_target_link_uri(
@@ -790,7 +795,7 @@ class TestLtiToolLaunchView:
         encoded = _encode_platform_jwt(id_token, self.kid)
         payload = {"state": "state", "id_token": encoded}
         request = rf.post(self.launch_endpoint, data=payload)
-        SessionMiddleware().process_request(request)
+        _get_session_middleware().process_request(request)
         request.session.save()
 
         LtiToolLaunchView.as_view()(request)
@@ -810,7 +815,7 @@ class TestLtiToolLaunchView:
         encoded = _encode_platform_jwt(id_token, self.kid)
         payload = {"state": "state", "id_token": encoded}
         request = rf.post(self.launch_endpoint, data=payload)
-        SessionMiddleware().process_request(request)
+        _get_session_middleware().process_request(request)
         request.session.save()
         now = timezone.now()
 
@@ -832,7 +837,7 @@ class TestLtiToolLaunchView:
         target_link_path_2 = parse.urlparse(target_link_uri_2).path
         payload = self._get_payload(course2, factories.USAGE_KEY)
         request = rf.post(self.launch_endpoint, data=payload)
-        SessionMiddleware().process_request(request)
+        _get_session_middleware().process_request(request)
         link_1_exp = timezone.now()
         request.session[LTI_SESSION_KEY] = {target_link_path_1: link_1_exp.isoformat()}
         request.session.save()
@@ -947,7 +952,7 @@ class TestDisplayTargetResourceView:
 
     def _setup_session(self, request) -> None:
         """Setup the session for the request"""
-        SessionMiddleware(lambda r: None).process_request(request)
+        _get_session_middleware().process_request(request)
         request.session.save()
 
     def _setup_user(self, request) -> None:
