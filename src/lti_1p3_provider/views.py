@@ -780,7 +780,9 @@ class DeepLinkingContentSelectionView(View):
             "<p>Deep linking content selection interface will be implemented here.</p>"
             f"<p>Tool: {tool_info.get('issuer', 'Unknown')}</p>"
             f"<p>Token: {token[:8]}...</p>"
-            "<p>This is a stub implementation.</p>",
+            "<p>This is a stub implementation.</p>"
+            "<form method='post'>"
+            "<button type='submit'>Select Content</button>",
             content_type="text/html",
         )
 
@@ -798,11 +800,11 @@ class DeepLinkingContentSelectionView(View):
             return render_edx_error(request, e.title, e.message, status=e.status_code)
 
         tool_info = dl_context["tool_info"]
+        tool_text = f"issuer={tool_info['issuer']}, client_id={tool_info['client_id']}"
         del self.request.session[token]
         log.info(
-            "Removed deep linking session for Tool (issuer=%s, client_id=%s), token %s",
-            tool_info["issuer"],
-            tool_info["client_id"],
+            "Successfully removed deep linking session for Tool (%s), token %s",
+            tool_text,
             token[:8] + "...",
         )
 
