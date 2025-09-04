@@ -50,7 +50,14 @@ from .error_response import (
 from .exceptions import DeepLinkingError, MissingSessionError
 from .jwks import get_jwks_for_org
 from .models import LaunchGate, LtiGradedResource, LtiProfile
-from .session_access import has_lti_session_access, set_lti_session_access
+from .session_access import (
+    clear_deep_linking_session,
+    generate_deep_linking_token,
+    has_lti_session_access,
+    set_lti_session_access,
+    store_deep_linking_context,
+    validate_deep_linking_session,
+)
 
 log = logging.getLogger(__name__)
 User = get_user_model()
@@ -578,47 +585,33 @@ class LtiToolLaunchView(LtiToolView):
         Returns:
             str: The unique token for this deep linking session
         """
-        token = self.get_deep_linking_token()
+        token = generate_deep_linking_token()
 
         session_duration_sec = getattr(
             settings,
             "LTI_DEEP_LINKING_SESSION_DURATION_SEC",
             DEFAULT_DEEP_LINKING_SESSION_DURATION_SEC,
         )
-        now = timezone.now()
-        expires_at = now + timedelta(seconds=session_duration_sec)
 
         tool = self.lti_tool_config.get_lti_tool(
             iss=self.launch_message.get_iss(),
             client_id=self.launch_message.get_client_id(),
         )
 
-        # Store context in session with token-specific key
-        session_key = f"lti_deep_link_context_{token}"
-        self.request.session[session_key] = {
-            "token": token,
-            "tool_info": {
-                "issuer": tool.issuer,
-                "client_id": tool.client_id,
-            },
-            "launch_data": self.launch_data.copy(),  # Store relevant launch data
-            "created_at": now.timestamp(),
-            "expires_at": expires_at.timestamp(),
+        tool_info = {
+            "issuer": tool.issuer,
+            "client_id": tool.client_id,
         }
 
-        log.info(
-            "Stored deep linking context in session for Tool (issuer=%s, client_id=%s) with token %s (expires at %s)",
-            tool.issuer,
-            tool.client_id,
-            token[:8] + "...",
-            expires_at.isoformat(),
+        store_deep_linking_context(
+            session=self.request.session,
+            token=token,
+            tool_info=tool_info,
+            launch_data=self.launch_data,
+            session_duration_sec=session_duration_sec,
         )
 
         return token
-
-    def get_deep_linking_token(self) -> str:
-        """Return a new unique token for deep linking session"""
-        return str(uuid.uuid4())
 
     def _handle_deep_linking_launch(self):
         """Handle LTI Deep Linking launch requests."""
@@ -768,7 +761,11 @@ class DeepLinkingContentSelectionView(View):
         """
         try:
             # Validate session has deep linking access for this token
-            deep_link_context = self._validate_deep_linking_session(token)
+            deep_link_context = validate_deep_linking_session(
+                session=request.session,
+                token=token,
+                user_authenticated=request.user.is_authenticated,
+            )
         except DeepLinkingError as e:
             return render_edx_error(request, e.title, e.message, status=e.status_code)
 
@@ -795,19 +792,18 @@ class DeepLinkingContentSelectionView(View):
         """
         try:
             # Validate session has deep linking access for this token
-            dl_context = self._validate_deep_linking_session(token)
+            dl_context = validate_deep_linking_session(
+                session=request.session,
+                token=token,
+                user_authenticated=request.user.is_authenticated,
+            )
         except DeepLinkingError as e:
             return render_edx_error(request, e.title, e.message, status=e.status_code)
 
-        tool_info = dl_context["tool_info"]
-        tool_text = f"issuer={tool_info['issuer']}, client_id={tool_info['client_id']}"
-        session_key = f"lti_deep_link_context_{token}"
-        del self.request.session[session_key]
-        log.info(
-            "Successfully removed deep linking session for Tool (%s), token %s",
-            tool_text,
-            token[:8] + "...",
-        )
+        # Validate that the selected content exists in their launch gate
+
+        # Clear the deep linking session since content has been selected
+        clear_deep_linking_session(session=request.session, token=token)
 
         # TODO: Process selected content and generate deep linking response
         # For now, return a stub response
@@ -818,92 +814,6 @@ class DeepLinkingContentSelectionView(View):
             f"<p>Token: {token[:8]}...</p>",
             content_type="text/html",
         )
-
-    def _validate_deep_linking_session(self, token: str) -> dict:
-        """
-        Validate user has valid deep linking session access for the given token.
-
-        Args:
-            token: The unique token for this deep linking session
-
-        Returns:
-            dict: Deep linking context if valid
-
-        Raises:
-            DeepLinkingError: If validation fails with user-friendly message
-        """
-
-        # Could use login required decorator, but don't want the automatic redirects here so we
-        if not self.request.user.is_authenticated:
-            log.warning("Deep linking access denied: user not authenticated")
-            raise DeepLinkingError(
-                title="Authentication Required",
-                message="Please perform a deep link launch from your learning platform.",
-                status_code=401,
-            )
-
-        # Check if session has deep linking context for this token
-        session_key = f"lti_deep_link_context_{token}"
-        dl_context = self.request.session.get(session_key)
-        if not dl_context:
-            log.warning(
-                "Deep linking access denied: no deep linking session for token %s...",
-                token[:8],
-            )
-            raise DeepLinkingError(
-                title="Invalid Access Link",
-                message="This content selection link is invalid or expired. Please launch again from your learning platform.",
-                status_code=404,
-            )
-
-        tool_info = dl_context["tool_info"]
-        tool_text = f"issuer={tool_info['issuer']}, client_id={tool_info['client_id']}"
-        # Validate token matches (extra security check)
-        if dl_context.get("token") != token:
-            log.error(
-                "Deep linking access denied for Tool (%s): token mismatch for token %s...",
-                tool_text,
-                token[:8],
-            )
-            # Clear potentially corrupted session
-            del self.request.session[session_key]
-            raise DeepLinkingError(
-                title="Invalid Access Link",
-                message="This content selection link is invalid. Please launch again from your learning platform.",
-                status_code=400,
-            )
-
-        # Check if session hasn't expired
-        expires_at = dl_context.get("expires_at")
-        if not expires_at:
-            log.error(
-                "Deep linking access denied for Tool (%s): no expiration in context for token %s...",
-                tool_text,
-                token[:8],
-            )
-            # Clear potentially corrupted session
-            del self.request.session[session_key]
-            raise DeepLinkingError(
-                title="Invalid Session",
-                message="Your content selection session is invalid. Please launch again from your learning platform.",
-                status_code=500,
-            )
-
-        if timezone.now().timestamp() > expires_at:
-            log.info(
-                "Deep linking session expired for Tool (%s), token %s...",
-                tool_text,
-                token[:8],
-            )
-            # Clear expired session
-            del self.request.session[session_key]
-            raise DeepLinkingError(
-                title="Deep Linking Session Expired",
-                message="Your content selection session has expired. Please launch again from your learning platform to select new content.",
-                status_code=403,
-            )
-
-        return dl_context
 
 
 # This was taken from lms/djangoapps/lti_provider
