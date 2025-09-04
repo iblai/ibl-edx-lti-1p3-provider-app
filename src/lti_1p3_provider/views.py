@@ -801,7 +801,8 @@ class DeepLinkingContentSelectionView(View):
 
         tool_info = dl_context["tool_info"]
         tool_text = f"issuer={tool_info['issuer']}, client_id={tool_info['client_id']}"
-        del self.request.session[token]
+        session_key = f"lti_deep_link_context_{token}"
+        del self.request.session[session_key]
         log.info(
             "Successfully removed deep linking session for Tool (%s), token %s",
             tool_text,
