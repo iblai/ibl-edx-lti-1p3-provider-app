@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import uuid
 from datetime import datetime, timedelta
 from urllib import parse
 
@@ -18,7 +17,7 @@ from django.http import (
     HttpResponseBadRequest,
     JsonResponse,
 )
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import Resolver404, resolve, reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -38,8 +37,10 @@ from pylti1p3.contrib.django import (
     DjangoMessageLaunch,
     DjangoOIDCLogin,
 )
+from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool
 from pylti1p3.exception import LtiException, OIDCException
 
+from .dl_content_selection import get_selectable_dl_content
 from .error_formatter import reformat_error
 from .error_response import (
     MISSING_SESSION_COOKIE_ERR_MSG,
@@ -771,16 +772,34 @@ class DeepLinkingContentSelectionView(View):
 
         # TODO: Implement content selection UI
         # For now, return a simple page with hardcoded content selection
-        tool_info = deep_link_context.get("tool_info", {})
-        return HttpResponse(
-            "<h1>Content Selection</h1>"
-            "<p>Deep linking content selection interface will be implemented here.</p>"
-            f"<p>Tool: {tool_info.get('issuer', 'Unknown')}</p>"
-            f"<p>Token: {token[:8]}...</p>"
-            "<p>This is a stub implementation.</p>"
-            "<form method='post' action=''>"
-            "<button type='submit'>Select Content</button>",
-            content_type="text/html",
+        tool_info = deep_link_context["tool_info"]
+        tool = self._get_lti_tool(tool_info["issuer"], tool_info["client_id"])
+        try:
+            gate = tool.launch_gate  # noqa: B018
+        except LaunchGate.DoesNotExist:
+            log.error(
+                "Tool (iss=%s, client_id=%s) has no LaunchGate; denying access",
+                tool.issuer,
+                tool.client_id,
+            )
+            return render_edx_error(
+                request,
+                title="No Accessible Content",
+                error="Tool does not have access to any content. Please contact your administrator.",
+                status=403,
+            )
+
+        selectable_content = get_selectable_dl_content(
+            keys=gate.allowed_keys, courses=gate.allowed_courses, orgs=gate.allowed_orgs
+        )
+
+        context = {
+            "selectable_content": selectable_content,
+            "issuer": tool.issuer,
+            "client_id": tool.client_id,
+        }
+        return render(
+            self.request, "lti_1p3_provider/select_deep_link_content.html", context
         )
 
     def post(self, request, token: str):
@@ -814,6 +833,11 @@ class DeepLinkingContentSelectionView(View):
             f"<p>Token: {token[:8]}...</p>",
             content_type="text/html",
         )
+
+    def _get_lti_tool(self, issuer: str, client_id: str) -> LtiTool:
+        """Return LtiTool from issuer and client_id"""
+        lti_tool_config = DjangoDbToolConf()
+        return lti_tool_config.get_lti_tool(iss=issuer, client_id=client_id)
 
 
 # This was taken from lms/djangoapps/lti_provider
