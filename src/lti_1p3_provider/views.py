@@ -794,6 +794,7 @@ class DeepLinkingContentSelectionView(View):
         )
 
         context = {
+            "title": "Select Content to Return",
             "selectable_content": selectable_content,
             "issuer": tool.issuer,
             "client_id": tool.client_id,
