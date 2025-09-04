@@ -3,12 +3,11 @@ from unittest import mock
 import pytest
 from common.djangoapps.student.tests.factories import UserFactory
 from xmodule.modulestore.tests.django_utils import (
-    TEST_DATA_MONGO_AMNESTY_MODULESTORE,
     ModuleStoreTestCase,
 )
 from xmodule.modulestore.tests.factories import (
+    BlockFactory,
     CourseFactory,
-    ItemFactory,
     check_mongo_calls,
 )
 
@@ -22,8 +21,6 @@ class TestGrades(ModuleStoreTestCase):
     Test cases for the assignments_for_problem method in outcomes.py
     """
 
-    MODULESTORE = TEST_DATA_MONGO_AMNESTY_MODULESTORE
-
     def setUp(self):
         super().setUp()
         self.profile = factories.LtiProfileFactory()
@@ -32,10 +29,12 @@ class TestGrades(ModuleStoreTestCase):
         self.tool = factories.LtiToolFactory()
         self.course = CourseFactory.create()
         with self.store.bulk_operations(self.course.id, emit_signals=False):
-            self.chapter = ItemFactory.create(parent=self.course, category="chapter")
-            self.vertical = ItemFactory.create(parent=self.chapter, category="vertical")
-            self.unit = ItemFactory.create(parent=self.vertical, category="unit")
-            self.problem = ItemFactory.create(parent=self.unit, catgegory="problem")
+            self.chapter = BlockFactory.create(parent=self.course, category="chapter")
+            self.vertical = BlockFactory.create(
+                parent=self.chapter, category="vertical"
+            )
+            self.unit = BlockFactory.create(parent=self.vertical, category="unit")
+            self.problem = BlockFactory.create(parent=self.unit, category="problem")
 
     def create_graded_assignment(self, desc, title):
         """
