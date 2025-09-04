@@ -1091,3 +1091,123 @@ class TestDisplayTargetResourceView:
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "Unauthorized"
         assert resp.status_code == 401
+
+
+@pytest.mark.django_db
+@mock.patch(
+    "pylti1p3.contrib.django.message_launch.DjangoSessionService",
+    new=fakes.FakeDjangoSessionService,
+)
+class TestLtiDeepLinkLaunch:
+    """Tests for LTI Deep Linking launch functionality"""
+
+    deep_link_launch_endpoint = reverse("lti_1p3_provider:deep-link-launch")
+
+    def setup_method(self):
+        self.tool = factories.LtiToolFactory()
+        self.kid = self.tool.to_dict()["key_set"]["keys"][0]["kid"]
+
+    def _get_deep_link_payload(self, key=factories.PLATFORM_PRIVATE_KEY) -> dict:
+        """Generate and return payload with encoded deep linking id_token"""
+        id_token = factories.DeepLinkIdTokenFactory(
+            aud=self.tool.client_id, nonce="nonce"
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid, key=key)
+        return {"state": "state", "id_token": encoded}
+
+    def test_successful_deep_linking_launch_creates_session_and_redirects(self, client):
+        """Test successful deep linking launch creates session and redirects to content selection"""
+        # Setup LaunchGate to allow access for this tool/org
+        factories.LaunchGateFactory(
+            tool=self.tool, allowed_orgs=[factories.COURSE_KEY.org]
+        )
+        payload = self._get_deep_link_payload()
+
+        resp = client.post(self.deep_link_launch_endpoint, payload)
+
+        assert resp.status_code == 302
+        # Should redirect to content selection with a token
+        assert resp.url.startswith(
+            "http://testserver/lti_1p3_provider/deep-linking/select-content/"
+        )
+        # Extract token from redirect URL
+        token = resp.url.split("/")[-2]
+        assert len(token) == 36  # UUID4 length
+
+    def test_deep_linking_launch_without_gate_access_returns_403(self, client):
+        """Test deep linking launch fails when LaunchGate denies access"""
+        # Create a gate that doesn't allow access to this org
+        factories.LaunchGateFactory(tool=self.tool, allowed_orgs=["other-org"])
+        payload = self._get_deep_link_payload()
+
+        resp = client.post(self.deep_link_launch_endpoint, payload)
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "LTI Launch Gate Error"
+        assert resp.status_code == 403
+
+    def test_deep_linking_launch_with_learner_role_returns_403(self, client):
+        """Test deep linking launch fails for non-instructor roles"""
+        # Setup LaunchGate to allow access
+        factories.LaunchGateFactory(
+            tool=self.tool, allowed_orgs=[factories.COURSE_KEY.org]
+        )
+        # Create token with learner role (default in factory)
+        id_token = factories.DeepLinkIdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            roles=["http://purl.imsglobal.org/vocab/lis/v2/membership#Learner"],
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
+
+        resp = client.post(self.deep_link_launch_endpoint, payload)
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Deep Linking Access Denied"
+        assert "instructor" in soup.find("p").text.lower()
+        assert resp.status_code == 403
+
+    def test_deep_linking_launch_with_instructor_role_succeeds(self, client):
+        """Test deep linking launch succeeds with instructor role"""
+        # Setup LaunchGate to allow access
+        factories.LaunchGateFactory(
+            tool=self.tool, allowed_orgs=[factories.COURSE_KEY.org]
+        )
+        # Create token with instructor role
+        id_token = factories.DeepLinkIdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            roles=["http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor"],
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
+
+        resp = client.post(self.deep_link_launch_endpoint, payload)
+
+        assert resp.status_code == 302
+        assert resp.url.startswith(
+            "http://testserver/lti_1p3_provider/deep-linking/select-content/"
+        )
+
+    def test_deep_linking_launch_with_admin_role_succeeds(self, client):
+        """Test deep linking launch succeeds with admin role"""
+        # Setup LaunchGate to allow access
+        factories.LaunchGateFactory(
+            tool=self.tool, allowed_orgs=[factories.COURSE_KEY.org]
+        )
+        # Create token with admin role
+        id_token = factories.DeepLinkIdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            roles=["http://purl.imsglobal.org/vocab/lis/v2/institution#Administrator"],
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
+
+        resp = client.post(self.deep_link_launch_endpoint, payload)
+
+        assert resp.status_code == 302
+        assert resp.url.startswith(
+            "http://testserver/lti_1p3_provider/deep-linking/select-content/"
+        )
