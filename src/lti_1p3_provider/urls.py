@@ -12,9 +12,14 @@ urlpatterns = [
     path("login/", views.LtiToolLoginView.as_view(), name="lti-login"),
     path("launch/", views.LtiToolLaunchView.as_view(), name="lti-launch"),
     path(
-        "/orgs/<slug:org_short_name>/deep-link-launch/",
+        "deep-linking/launch/",
         views.LtiToolLaunchView.as_view(),
         name="deep-link-launch",
+    ),
+    path(
+        "deep-linking/select-content/<slug:token>/",
+        views.DeepLinkingContentSelectionView.as_view(),
+        name="deep-linking-select-content",
     ),
     re_path(
         f"launch/{settings.COURSE_ID_PATTERN}/{settings.USAGE_ID_PATTERN}$",

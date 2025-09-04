@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
 from datetime import datetime, timedelta
 from urllib import parse
 
@@ -46,7 +47,7 @@ from .error_response import (
     get_lti_error_response,
     render_edx_error,
 )
-from .exceptions import MissingSessionError
+from .exceptions import DeepLinkingError, MissingSessionError
 from .jwks import get_jwks_for_org
 from .models import LaunchGate, LtiGradedResource, LtiProfile
 from .session_access import has_lti_session_access, set_lti_session_access
@@ -55,6 +56,7 @@ log = logging.getLogger(__name__)
 User = get_user_model()
 
 LTI_1P3_EMAIL_META_KEY = "lti_1p3_email"
+DEFAULT_DEEP_LINKING_SESSION_DURATION_SEC = 1800  # 30 minutes
 DEFAULT_LTI_DEEP_LINKING_ACCEPT_ROLES = [
     "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Instructor",
     "http://purl.imsglobal.org/vocab/lis/v2/membership#ContentDeveloper",
@@ -566,14 +568,60 @@ class LtiToolLaunchView(LtiToolView):
 
         return True
 
-    def _handle_deep_linking_launch(self):
+    def _store_deep_linking_context(self) -> str:
         """
-        Handle LTI Deep Linking launch requests.
+        Store deep linking context in the user's session with a unique token.
 
-        TODO: Implement remaining functionality:
-        - Present content selection interface
-        - Return deep linking response with selected content
+        This context includes tool information, launch data, and expiration time
+        to control access to the content selection page.
+
+        Returns:
+            str: The unique token for this deep linking session
         """
+        token = self.get_deep_linking_token()
+
+        session_duration_sec = getattr(
+            settings,
+            "LTI_DEEP_LINKING_SESSION_DURATION_SEC",
+            DEFAULT_DEEP_LINKING_SESSION_DURATION_SEC,
+        )
+        now = timezone.now()
+        expires_at = now + timedelta(seconds=session_duration_sec)
+
+        tool = self.lti_tool_config.get_lti_tool(
+            iss=self.launch_message.get_iss(),
+            client_id=self.launch_message.get_client_id(),
+        )
+
+        # Store context in session with token-specific key
+        session_key = f"lti_deep_link_context_{token}"
+        self.request.session[session_key] = {
+            "token": token,
+            "tool_info": {
+                "issuer": tool.issuer,
+                "client_id": tool.client_id,
+            },
+            "launch_data": self.launch_data.copy(),  # Store relevant launch data
+            "created_at": now.timestamp(),
+            "expires_at": expires_at.timestamp(),
+        }
+
+        log.info(
+            "Stored deep linking context in session for Tool (issuer=%s, client_id=%s) with token %s (expires at %s)",
+            tool.issuer,
+            tool.client_id,
+            token[:8] + "...",
+            expires_at.isoformat(),
+        )
+
+        return token
+
+    def get_deep_linking_token(self) -> str:
+        """Return a new unique token for deep linking session"""
+        return str(uuid.uuid4())
+
+    def _handle_deep_linking_launch(self):
+        """Handle LTI Deep Linking launch requests."""
         iss = self.launch_message.get_iss()
         client_id = self.launch_message.get_client_id()
         log.info(
@@ -610,13 +658,14 @@ class LtiToolLaunchView(LtiToolView):
         if not edx_user:
             return self._bad_request_response()
 
-        # For now, return a simple error response to preserve existing behavior
-        return get_lti_error_response(
-            self.request,
-            self.launch_data,
-            title="Deep Linking Not Yet Implemented",
-            errormsg="Deep linking functionality is under development. Please use regular LTI resource links for now.",
-            status=501,  # Not Implemented
+        # Store context and get unique token
+        token = self._store_deep_linking_context()
+
+        # Redirect to content selection with token
+        return redirect(
+            reverse(
+                "lti_1p3_provider:deep-linking-select-content", kwargs={"token": token}
+            )
         )
 
 
@@ -699,6 +748,155 @@ class LtiOrgToolJwksView(LtiToolView):
         """
 
         return JsonResponse(get_jwks_for_org(org_short_name), safe=False)
+
+
+@method_decorator(requires_lti_enabled, name="dispatch")
+class DeepLinkingContentSelectionView(View):
+    """
+    Content selection view for LTI Deep Linking.
+
+    Allows users to select content to return to the platform after
+    a deep linking launch. Access is controlled by session-based validation.
+    """
+
+    def get(self, request, token: str):
+        """
+        Display content selection interface for deep linking.
+
+        Args:
+            token: Unique token for this deep linking session
+        """
+        try:
+            # Validate session has deep linking access for this token
+            deep_link_context = self._validate_deep_linking_session(token)
+        except DeepLinkingError as e:
+            return render_edx_error(request, e.title, e.message, status=e.status_code)
+
+        # TODO: Implement content selection UI
+        # For now, return a simple page with hardcoded content selection
+        tool_info = deep_link_context.get("tool_info", {})
+        return HttpResponse(
+            "<h1>Content Selection</h1>"
+            "<p>Deep linking content selection interface will be implemented here.</p>"
+            f"<p>Tool: {tool_info.get('issuer', 'Unknown')}</p>"
+            f"<p>Token: {token[:8]}...</p>"
+            "<p>This is a stub implementation.</p>",
+            content_type="text/html",
+        )
+
+    def post(self, request, token: str):
+        """
+        Process content selection and return deep linking response.
+
+        Args:
+            token: Unique token for this deep linking session
+        """
+        try:
+            # Validate session has deep linking access for this token
+            dl_context = self._validate_deep_linking_session(token)
+        except DeepLinkingError as e:
+            return render_edx_error(request, e.title, e.message, status=e.status_code)
+
+        tool_info = dl_context["tool_info"]
+        del self.request.session[token]
+        log.info(
+            "Removed deep linking session for Tool (issuer=%s, client_id=%s), token %s",
+            tool_info["issuer"],
+            tool_info["client_id"],
+            token[:8] + "...",
+        )
+
+        # TODO: Process selected content and generate deep linking response
+        # For now, return a stub response
+
+        return HttpResponse(
+            "<h1>Content Selected</h1>"
+            "<p>Deep linking response generation will be implemented here.</p>"
+            f"<p>Token: {token[:8]}...</p>",
+            content_type="text/html",
+        )
+
+    def _validate_deep_linking_session(self, token: str) -> dict:
+        """
+        Validate user has valid deep linking session access for the given token.
+
+        Args:
+            token: The unique token for this deep linking session
+
+        Returns:
+            dict: Deep linking context if valid
+
+        Raises:
+            DeepLinkingError: If validation fails with user-friendly message
+        """
+
+        # Check if user is authenticated
+        if not self.request.user.is_authenticated:
+            log.warning("Deep linking access denied: user not authenticated")
+            raise DeepLinkingError(
+                title="Authentication Required",
+                message="Please log in to access this content selection page.",
+                status_code=401,
+            )
+
+        # Check if session has deep linking context for this token
+        session_key = f"lti_deep_link_context_{token}"
+        dl_context = self.request.session.get(session_key)
+        if not dl_context:
+            log.warning(
+                "Deep linking access denied: no context for token %s...", token[:8]
+            )
+            raise DeepLinkingError(
+                title="Invalid Access Link",
+                message="This content selection link is invalid or expired. Please launch again from your learning platform.",
+                status_code=400,
+            )
+
+        # Validate token matches (extra security check)
+        if dl_context.get("token") != token:
+            log.warning(
+                "Deep linking access denied: token mismatch for %s...", token[:8]
+            )
+            # Clear potentially corrupted session
+            del self.request.session[session_key]
+            raise DeepLinkingError(
+                title="Invalid Access Link",
+                message="This content selection link is invalid. Please launch again from your learning platform.",
+                status_code=400,
+            )
+
+        # Check if session hasn't expired
+        expires_at = dl_context.get("expires_at")
+        if not expires_at:
+            log.warning(
+                "Deep linking access denied: no expiration in context for token %s...",
+                token[:8],
+            )
+            # Clear potentially corrupted session
+            del self.request.session[session_key]
+            raise DeepLinkingError(
+                title="Invalid Session",
+                message="Your content selection session is invalid. Please launch again from your learning platform.",
+                status_code=400,
+            )
+
+        tool = dl_context["tool_info"]
+        if timezone.now().timestamp() > expires_at:
+            log.info(
+                "Deep linking session expired for Tool (issuer=%s, client_id=%s), token %s...",
+                tool["issuer"],
+                tool["client_id"],
+                token[:8],
+            )
+            # Clear expired session
+            del self.request.session[session_key]
+            raise DeepLinkingError(
+                title="Session Expired",
+                message="Your content selection session has expired. Please launch again from your learning platform to select new content.",
+                status_code=403,
+            )
+
+        return dl_context
 
 
 # This was taken from lms/djangoapps/lti_provider
