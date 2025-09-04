@@ -307,3 +307,36 @@ class LtiKeyOrgFactory(factory.django.DjangoModelFactory):
 
     key = factory.SubFactory(LtiToolKeyFactory)
     org = factory.SubFactory(OrganizationFactory)
+
+
+class DeepLinkIdTokenFactory(IdTokenFactory):
+    """An LTI Deep Linking Request"""
+
+    # Remove target_link_uri - not used in deep linking
+    target_link_uri = None
+
+    @classmethod
+    def _create(cls, model_class, *args, **kwargs):
+        # Remove target_link_uri from kwargs if present
+        kwargs.pop("target_link_uri", None)
+        
+        obj = super()._create(model_class, *args, **kwargs)
+        
+        # Override message_type for deep linking
+        obj["https://purl.imsglobal.org/spec/lti/claim/message_type"] = (
+            "LtiDeepLinkingRequest"
+        )
+        
+        # Remove target_link_uri claim if it was added
+        obj.pop("https://purl.imsglobal.org/spec/lti/claim/target_link_uri", None)
+        
+        # Add required deep linking settings
+        obj["https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"] = {
+            "deep_link_return_url": "https://platform-server.local/deep_link_return",
+            "accept_types": ["link", "file", "html", "ltiResourceLink", "image"],
+            "accept_presentation_document_targets": ["iframe", "window"],
+            "accept_media_types": "image/*,text/html",
+            "auto_create": False
+        }
+        
+        return obj
