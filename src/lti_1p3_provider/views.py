@@ -778,7 +778,7 @@ class DeepLinkingContentSelectionView(View):
             f"<p>Tool: {tool_info.get('issuer', 'Unknown')}</p>"
             f"<p>Token: {token[:8]}...</p>"
             "<p>This is a stub implementation.</p>"
-            "<form method='post'>"
+            "<form method='post' action=''>"
             "<button type='submit'>Select Content</button>",
             content_type="text/html",
         )
