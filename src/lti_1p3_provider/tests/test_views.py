@@ -35,6 +35,7 @@ from lti_1p3_provider.error_response import (
 from lti_1p3_provider.models import EDX_LTI_EMAIL_DOMAIN, LtiGradedResource, LtiProfile
 from lti_1p3_provider.session_access import LTI_SESSION_KEY
 from lti_1p3_provider.views import (
+    DEFAULT_LTI_DEEP_LINKING_ACCEPT_ROLES,
     LTI_1P3_EMAIL_META_KEY,
     DisplayTargetResource,
     LtiToolLaunchView,
@@ -1134,7 +1135,19 @@ class TestLtiDeepLinkLaunch:
 
     def test_no_launch_gate_for_tool_returns_403(self, client):
         """Test deep linking launch fails when LaunchGate does not exist"""
-        # Create a gate that doesn't allow access to this org
+        payload = self._get_deep_link_payload()
+
+        resp = client.post(self.deep_link_launch_endpoint, payload)
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "No Accessible Content"
+        assert "tool does not have access to any content" in soup.find("p").text.lower()
+        assert resp.status_code == 403
+
+    def test_empty_launch_gate_for_tool_returns_403(self, client):
+        """Test deep linking launch fails when LaunchGate is empty"""
+        # Create a gate for this tool that doesn't have any accessible content
+        factories.LaunchGateFactory(tool=self.tool)
         payload = self._get_deep_link_payload()
 
         resp = client.post(self.deep_link_launch_endpoint, payload)
@@ -1162,12 +1175,15 @@ class TestLtiDeepLinkLaunch:
         resp = client.post(self.deep_link_launch_endpoint, payload)
 
         soup = BeautifulSoup(resp.content, "html.parser")
-        assert soup.find("h1").text == "Deep Linking Access Denied"
-        assert "instructor" in soup.find("p").text.lower()
+        assert soup.find("h1").text == "Insufficient Permissions"
+        assert "required role to access" in soup.find("p").text.lower()
         assert resp.status_code == 403
 
-    def test_deep_linking_launch_with_instructor_role_succeeds(self, client):
-        """Test deep linking launch succeeds with instructor role"""
+    @pytest.mark.parametrize("role", DEFAULT_LTI_DEEP_LINKING_ACCEPT_ROLES)
+    def test_deep_linking_launch_with_default_allowed_roles_succeeds(
+        self, client, role
+    ):
+        """Test deep linking launch succeeds with default allowed roles"""
         # Setup LaunchGate to allow access
         factories.LaunchGateFactory(
             tool=self.tool, allowed_orgs=[factories.COURSE_KEY.org]
@@ -1176,7 +1192,7 @@ class TestLtiDeepLinkLaunch:
         id_token = factories.DeepLinkIdTokenFactory(
             aud=self.tool.client_id,
             nonce="nonce",
-            roles=["http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor"],
+            roles=[role],
         )
         encoded = _encode_platform_jwt(id_token, self.kid)
         payload = {"state": "state", "id_token": encoded}
@@ -1184,28 +1200,4 @@ class TestLtiDeepLinkLaunch:
         resp = client.post(self.deep_link_launch_endpoint, payload)
 
         assert resp.status_code == 302
-        assert resp.url.startswith(
-            "http://testserver/lti_1p3_provider/deep-linking/select-content/"
-        )
-
-    def test_deep_linking_launch_with_admin_role_succeeds(self, client):
-        """Test deep linking launch succeeds with admin role"""
-        # Setup LaunchGate to allow access
-        factories.LaunchGateFactory(
-            tool=self.tool, allowed_orgs=[factories.COURSE_KEY.org]
-        )
-        # Create token with admin role
-        id_token = factories.DeepLinkIdTokenFactory(
-            aud=self.tool.client_id,
-            nonce="nonce",
-            roles=["http://purl.imsglobal.org/vocab/lis/v2/institution#Administrator"],
-        )
-        encoded = _encode_platform_jwt(id_token, self.kid)
-        payload = {"state": "state", "id_token": encoded}
-
-        resp = client.post(self.deep_link_launch_endpoint, payload)
-
-        assert resp.status_code == 302
-        assert resp.url.startswith(
-            "http://testserver/lti_1p3_provider/deep-linking/select-content/"
-        )
+        assert resp.url.startswith("/lti/1p3/deep-linking/select-content/")
