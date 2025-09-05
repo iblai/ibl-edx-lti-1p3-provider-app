@@ -38,6 +38,7 @@ from pylti1p3.contrib.django import (
     DjangoOIDCLogin,
 )
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool
+from pylti1p3.deep_link_resource import DeepLinkResource
 from pylti1p3.exception import LtiException, OIDCException
 
 from .dl_content_selection import get_selectable_dl_content
@@ -329,8 +330,6 @@ class LtiToolLaunchView(LtiToolView):
 
             if self.launch_message.is_deep_link_launch():
                 return self._handle_deep_linking_launch()
-
-            # Regular resource link launch
             return self._handle_basic_tool_launch()
 
         except InvalidKeyError as e:
@@ -825,15 +824,23 @@ class DeepLinkingContentSelectionView(View):
         # Clear the deep linking session since content has been selected
         clear_deep_linking_session(session=request.session, token=token)
 
-        # TODO: Process selected content and generate deep linking response
-        # For now, return a stub response
-
-        return HttpResponse(
-            "<h1>Content Selected</h1>"
-            "<p>Deep linking response generation will be implemented here.</p>"
-            f"<p>Token: {token[:8]}...</p>",
-            content_type="text/html",
-        )
+        # Generate hardcoded deep linking response
+        tool_info = dl_context["tool_info"]
+        launch_data = dl_context["launch_data"]
+        
+        # Create a hardcoded LTI resource link to return to the platform
+        resource = DeepLinkResource()
+        resource.set_url("https://example.com/lti-content")
+        resource.set_title("Sample LTI Content")
+        resource.set_text("A sample piece of content selected via Deep Linking")
+        
+        # Create the message launch instance to generate response
+        message_launch = DjangoMessageLaunch(request, self.lti_tool_config, launch_data=launch_data)
+        
+        # Generate the deep link response with the hardcoded content
+        deep_link_response = message_launch.get_deep_link().output_response_form([resource])
+        
+        return HttpResponse(deep_link_response, content_type="text/html")
 
     def _get_lti_tool(self, issuer: str, client_id: str) -> LtiTool:
         """Return LtiTool from issuer and client_id"""
