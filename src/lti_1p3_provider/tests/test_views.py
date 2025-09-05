@@ -1247,3 +1247,190 @@ class TestLtiDeepLinkLaunch:
 
         assert resp.status_code == 302
         assert resp.url.startswith("/lti/1p3/deep-linking/select-content/")
+
+
+@pytest.mark.django_db
+class TestDeepLinkingContentSelectionView:
+    """Tests for Deep Linking Content Selection View"""
+
+    def setup_method(self):
+        self.tool = factories.LtiToolFactory()
+        self.token = "test-token-123"
+        self.user = factories.UserFactory()
+
+        # Default session data that can be modified per test
+        self.dl_session_data = {
+            "token": self.token,
+            "tool_info": {
+                "issuer": self.tool.issuer,
+                "client_id": self.tool.client_id,
+            },
+            "launch_data": {
+                "iss": self.tool.issuer,
+                "aud": self.tool.client_id,
+                "sub": self.user.username,
+                "https://purl.imsglobal.org/spec/lti/claim/message_type": "LtiDeepLinkingRequest",
+                "https://purl.imsglobal.org/spec/lti/claim/version": "1.3.0",
+                "https://purl.imsglobal.org/spec/lti/claim/deployment_id": "1",
+                "https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings": {
+                    "deep_link_return_url": "https://platform.local/return",
+                    "accept_types": ["ltiResourceLink"],
+                    "accept_presentation_document_targets": ["iframe", "window"],
+                },
+            },
+            "created_at": timezone.now().timestamp(),
+            "expires_at": (timezone.now() + timedelta(minutes=30)).timestamp(),
+        }
+
+    def _setup_session(self, client, authenticated=True):
+        """Setup client session ith deep linking context"""
+        if authenticated:
+            client.force_login(self.user)
+
+        session_key = f"{LTI_DEEP_LINKING_SESSION_PREFIX}{self.token}"
+        session = client.session
+        session[session_key] = self.dl_session_data
+        session.save()
+
+    @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
+    def test_get_content_selection_with_valid_session_renders_page(
+        self, mock_get_content, client
+    ):
+        """Test GET request with valid session renders content selection page"""
+        # Setup LaunchGate
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=["test-org"],
+            allowed_courses=["course1", "course2"],
+        )
+
+        # Mock the content selection function
+        mock_content = [
+            {"type": "course", "id": "course1", "title": "Test Course 1"},
+            {"type": "course", "id": "course2", "title": "Test Course 2"},
+        ]
+        mock_get_content.return_value = mock_content
+
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 200
+        assert "Select Content to Return" in resp.content.decode()
+        mock_get_content.assert_called_once_with(
+            keys=gate.allowed_keys, courses=gate.allowed_courses, orgs=gate.allowed_orgs
+        )
+
+    def test_get_content_selection_with_invalid_token_returns_404(self, client):
+        """Test GET request with invalid token returns 404"""
+        self._setup_session(client)
+
+        invalid_token = "invalid-token-456"
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content",
+            kwargs={"token": invalid_token},
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 404
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid Access Link"
+
+    def test_get_content_selection_with_unauthenticated_user_returns_401(self, client):
+        """Test GET request with unauthenticated user returns 401"""
+        self._setup_session(client, authenticated=False)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 401
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Authentication Required"
+
+    def test_get_content_selection_with_expired_session_returns_403(self, client):
+        """Test GET request with expired session returns 403"""
+        # Modify session data to be expired
+        self.dl_session_data["expires_at"] = (
+            timezone.now() - timedelta(minutes=1)
+        ).timestamp()
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 403
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Deep Linking Session Expired"
+
+    def test_get_content_selection_with_token_mismatch_returns_400(self, client):
+        """Test GET request with token mismatch in session returns 400"""
+        # Modify session data to have mismatched token
+        self.dl_session_data["token"] = "different-token"
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 400
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid Access Link"
+
+    def test_get_content_selection_with_no_launch_gate_returns_403(self, client):
+        """Test GET request when tool has no LaunchGate returns 403"""
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 403
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "No Accessible Content"
+
+    @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
+    def test_get_content_selection_with_empty_content_renders_page(
+        self, mock_get_content, client
+    ):
+        """Test GET request with empty content list still renders page"""
+        # Setup LaunchGate
+        factories.LaunchGateFactory(tool=self.tool)
+
+        # Mock empty content
+        mock_get_content.return_value = []
+
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 200
+        assert "Select Content to Return" in resp.content.decode()
+
+    def test_get_content_selection_with_missing_session_expiration_returns_500(
+        self, client
+    ):
+        """Test GET request with missing session expiration returns 500"""
+        # Remove expires_at from session data
+        del self.dl_session_data["expires_at"]
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 500
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid Session"
