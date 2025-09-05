@@ -827,19 +827,23 @@ class DeepLinkingContentSelectionView(View):
         # Generate hardcoded deep linking response
         tool_info = dl_context["tool_info"]
         launch_data = dl_context["launch_data"]
-        
+
         # Create a hardcoded LTI resource link to return to the platform
         resource = DeepLinkResource()
         resource.set_url("https://example.com/lti-content")
         resource.set_title("Sample LTI Content")
         resource.set_text("A sample piece of content selected via Deep Linking")
-        
+
         # Create the message launch instance to generate response
-        message_launch = DjangoMessageLaunch(request, self.lti_tool_config, launch_data=launch_data)
-        
+        message_launch = DjangoMessageLaunch(
+            request, self.lti_tool_config, launch_data=launch_data
+        )
+
         # Generate the deep link response with the hardcoded content
-        deep_link_response = message_launch.get_deep_link().output_response_form([resource])
-        
+        deep_link_response = message_launch.get_deep_link().output_response_form(
+            [resource]
+        )
+
         return HttpResponse(deep_link_response, content_type="text/html")
 
     def _get_lti_tool(self, issuer: str, client_id: str) -> LtiTool:
