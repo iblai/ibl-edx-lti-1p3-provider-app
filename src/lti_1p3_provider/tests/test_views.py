@@ -1256,7 +1256,13 @@ class TestDeepLinkingContentSelectionView:
     def setup_method(self):
         self.tool = factories.LtiToolFactory()
         self.token = "test-token-123"
+        # Need to use a password and client.login due to safesessions
+        # It's Client.login is automatically patched to support safe sessions but
+        # force_login is not supported
         self.user = factories.UserFactory()
+        self.password = "password"
+        self.user.set_password(self.password)
+        self.user.save()
 
         # Default session data that can be modified per test
         self.dl_session_data = {
@@ -1285,7 +1291,7 @@ class TestDeepLinkingContentSelectionView:
     def _setup_session(self, client, authenticated=True):
         """Setup client session ith deep linking context"""
         if authenticated:
-            client.force_login(self.user)
+            client.login(username=self.user.username, password=self.password)
 
         session_key = f"{LTI_DEEP_LINKING_SESSION_PREFIX}{self.token}"
         session = client.session
@@ -1319,6 +1325,7 @@ class TestDeepLinkingContentSelectionView:
         resp = client.get(url)
 
         assert resp.status_code == 200
+        # TODO: Update to parse real response
         assert "Select Content to Return" in resp.content.decode()
         mock_get_content.assert_called_once_with(
             keys=gate.allowed_keys, courses=gate.allowed_courses, orgs=gate.allowed_orgs
