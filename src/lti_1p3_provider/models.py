@@ -53,7 +53,9 @@ from __future__ import annotations
 import logging
 import random
 import string
+import typing as t
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
@@ -392,6 +394,36 @@ def validate_usage_keys(usage_keys: list[str]) -> None:
             raise ValidationError(f"Invalid UsageKey: {key}")
 
 
+def validate_course_block_filter(course_block_filter: t.Any) -> None:
+    """Validate a course block filter"""
+    if not isinstance(course_block_filter, dict):
+        raise ValidationError(
+            "Course block filter must be a dictionary of course keys and lists of edx block types"
+        )
+    validate_course_keys(list(course_block_filter.keys()))
+
+
+def validate_org_block_filter(org_block_filter: t.Any) -> None:
+    """Validate an org block filter"""
+    if not isinstance(org_block_filter, dict):
+        raise ValidationError(
+            "Org block filter must be a dictionary of org short names and lists of edx block types"
+        )
+
+
+def validate_block_filter(block_filter: t.Any) -> None:
+    """Validate a deep linking block filter"""
+    if not isinstance(block_filter, list):
+        raise ValidationError("Block filter must be a list of edx block types")
+
+
+def block_filter_default() -> dict:
+    """
+    Default block filter.
+    """
+    return getattr(settings, "LTI_BLOCK_FILTER_DEFAULT", {})
+
+
 class LaunchGate(models.Model):
     """Stores information about which xblocks a tool can access"""
 
@@ -418,6 +450,74 @@ class LaunchGate(models.Model):
         help_text="Allows tools to access any content in these orgs",
         blank=True,
     )
+    # Filters
+    block_filter = models.JSONField(
+        default=block_filter_default,
+        help_text=(
+            "Allow only these block types to be launched for this Tool. "
+            "These will also be the only block types displayed when deep linking. Set "
+            "this field OR course_block_filter and/or org_block_filter to restrict access."
+        ),
+        blank=True,
+        validators=[validate_block_filter],
+    )
+    course_block_filter = models.JSONField(
+        default=list,
+        help_text=(
+            "Allow only these block types to be launched in these courses. "
+            "Valid formats: {course_key: [block_types], ...}. These courses will only "
+            "display these block types when deep linking."
+        ),
+        blank=True,
+        validators=[validate_course_block_filter],
+    )
+    org_block_filter = models.JSONField(
+        default=list,
+        help_text=(
+            "Allow only these block types to be launched in these orgs. "
+            "Valid formats: {org_short_name: [block_types], ...}. These orgs will only "
+            "display these block types when deep linking."
+        ),
+        blank=True,
+        validators=[validate_org_block_filter],
+    )
+
+    def clean(self):
+        """
+        Validate LaunchGate configuration for conflicting requirements and block type restrictions.
+
+        Raises ValidationError if:
+        1. There are conflicting requirements between allowed_keys and block_filter
+        2. allowed_keys contain invalid UsageKeys
+        3. block_filter exists and usage key block types are not allowed
+        """
+        super().clean()
+        # Can only set one of block_filter OR (course_block_filter, org_block_filter
+        if self.block_filter and (self.course_block_filter or self.org_block_filter):
+            raise ValidationError(
+                "Cannot set both block_filter and course_block_filter or org_block_filter"
+            )
+
+        if not self.block_filter:
+            return
+
+        if not self.allowed_keys:
+            return
+
+        for key_str in self.allowed_keys:
+            try:
+                usage_key = UsageKey.from_string(key_str)
+            except ValueError as e:
+                raise ValidationError(
+                    f"Invalid UsageKey in allowed_keys: {key_str}"
+                ) from e
+
+            block_type = usage_key.block_type
+            if block_type not in self.block_filter:
+                raise ValidationError(
+                    f"Allowed UsageKey {usage_key} has block type '{block_type}' which is not allowed "
+                    f"by block_filter: {self.block_filter}"
+                )
 
     def can_access_key(self, usage_key: UsageKey) -> bool:
         """Return True if tool can access usage_key
