@@ -1,7 +1,5 @@
 from common.djangoapps.student.tests.factories import UserFactory
-from xmodule.modulestore.tests.django_utils import (
-    ModuleStoreTestCase,
-)
+from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory
 
 from lti_1p3_provider.grades import get_assignments_for_problem
