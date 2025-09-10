@@ -158,7 +158,6 @@ def _get_course_content(
             if child_content:
                 children.append(child_content)
 
-    breakpoint()
     content["children"] = course_content
     return content
 
