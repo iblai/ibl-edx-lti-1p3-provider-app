@@ -376,8 +376,11 @@ def generate_random_edx_username():
     return username
 
 
-def validate_course_keys(course_keys: list[str]) -> None:
+def validate_course_keys(course_keys: t.Any) -> None:
     """Validate a list of CourseKey strings"""
+    if not isinstance(course_keys, list):
+        raise ValidationError("Course keys must be a list")
+
     for key in course_keys:
         try:
             CourseKey.from_string(key)
@@ -385,8 +388,17 @@ def validate_course_keys(course_keys: list[str]) -> None:
             raise ValidationError(f"Invalid CourseKey: {key}")
 
 
-def validate_usage_keys(usage_keys: list[str]) -> None:
+def validate_allowed_orgs(orgs: t.Any) -> None:
+    """Validate a list of Org strings"""
+    if not isinstance(orgs, list):
+        raise ValidationError("allowed_orgs must be a list")
+
+
+def validate_usage_keys(usage_keys: t.Any) -> None:
     """Validate a list of UsageKey strings"""
+    if not isinstance(usage_keys, list):
+        raise ValidationError("Usage keys must be a list")
+
     for key in usage_keys:
         try:
             UsageKey.from_string(key)
@@ -449,6 +461,7 @@ class LaunchGate(models.Model):
         default=list,
         help_text="Allows tools to access any content in these orgs",
         blank=True,
+        validators=[validate_allowed_orgs],
     )
     # Filters
     block_filter = models.JSONField(
@@ -462,7 +475,7 @@ class LaunchGate(models.Model):
         validators=[validate_block_filter],
     )
     course_block_filter = models.JSONField(
-        default=list,
+        default=dict,
         help_text=(
             "Allow only these block types to be launched in these courses. "
             "Valid formats: {course_key: [block_types], ...}. These courses will only "
@@ -472,7 +485,7 @@ class LaunchGate(models.Model):
         validators=[validate_course_block_filter],
     )
     org_block_filter = models.JSONField(
-        default=list,
+        default=dict,
         help_text=(
             "Allow only these block types to be launched in these orgs. "
             "Valid formats: {org_short_name: [block_types], ...}. These orgs will only "
@@ -524,6 +537,12 @@ class LaunchGate(models.Model):
 
         This is evaluated as an OR of allowed_keys, allowed_courses, allowed_orgs
         """
+        can_access = self._is_usage_key_allowed(usage_key)
+        is_allowed = self._is_block_type_allowed(usage_key)
+        return can_access and is_allowed
+
+    def _is_usage_key_allowed(self, usage_key: UsageKey) -> bool:
+        """Return True if usage_key is allowed"""
         allowed_keys, allowed_courses, allowed_orgs = False, False, False
         if self.allowed_keys:
             allowed_keys = str(usage_key) in self.allowed_keys
@@ -535,6 +554,38 @@ class LaunchGate(models.Model):
             allowed_orgs = usage_key.course_key.org in self.allowed_orgs
 
         return allowed_keys or allowed_courses or allowed_orgs
+
+    def _is_block_type_allowed(self, usage_key: UsageKey) -> bool:
+        """Return True if usage key's block_type is allowed"""
+        # If not filters are set, nothing is filtered out
+        if not any(
+            [
+                bool(self.block_filter),
+                bool(self.course_block_filter),
+                bool(self.org_block_filter),
+            ]
+        ):
+            return True
+
+        # if we're in the global block filter, we're not filtered out
+        if usage_key.block_type in self.block_filter:
+            return True
+
+        course_key_str = str(usage_key.course_key)
+        block_type = usage_key.block_type
+
+        # if the block type is in courses block filter, we're not filtered out
+        course_block_filter = self.course_block_filter.get(course_key_str, [])
+        if block_type in course_block_filter:
+            return True
+
+        # if the block type is in orgs block filter, we're not filtered out
+        org = usage_key.course_key.org
+        org_block_filter = self.org_block_filter.get(org, [])
+        if block_type in org_block_filter:
+            return True
+
+        return False
 
 
 class LtiToolOrg(models.Model):
