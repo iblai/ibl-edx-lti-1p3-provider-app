@@ -33,7 +33,7 @@ def get_selectable_dl_content(launch_gate: LaunchGate) -> dict[str, list[Content
     """
     m = modulestore()
 
-    courses = _get_courses(m, launch_gate.allowed_orgs, launch_gate.allowed_courses)
+    courses = _get_courses(m, launch_gate)
 
     results: dict[str, list[Content]] = defaultdict(list)
 
@@ -68,11 +68,11 @@ def get_selectable_dl_content(launch_gate: LaunchGate) -> dict[str, list[Content
     return results
 
 
-def _get_courses(
-    m: MixedModuleStore, orgs: list[str], courses: list[str]
-) -> dict[str, Content]:
+def _get_courses(m: MixedModuleStore, launch_gate: LaunchGate) -> dict[str, Content]:
     """Return courses from modulestore"""
     result: dict[str, Any] = {}
+    orgs = launch_gate.allowed_orgs
+    courses = launch_gate.allowed_courses
 
     # Get courses by organization
     for org in orgs:
