@@ -478,3 +478,72 @@ class TestLaunchGateCanAccessKeyWithBlockTypeFilters:
         )
 
         assert gate.can_access_key(key) is expected
+
+    def test_empty_course_block_filter_blocks_nothing(self):
+        """Empty course block filter should block nothing (not everything)"""
+        gate = factories.LaunchGateFactory.build(
+            allowed_orgs=["org1"],
+            course_block_filter={"course-v1:org1+course1+run": []},  # Empty list
+        )
+        key = UsageKey.from_string("block-v1:org1+course1+run+type@html+block@html_id")
+
+        # Should return True because empty list means "no filtering"
+        assert gate.can_access_key(key) is True
+
+    def test_empty_org_block_filter_blocks_nothing(self):
+        """Empty org block filter should block nothing (not everything)"""
+        gate = factories.LaunchGateFactory.build(
+            allowed_orgs=["org1"],
+            org_block_filter={"org1": []},  # Empty list
+        )
+        key = UsageKey.from_string("block-v1:org1+course1+run+type@html+block@html_id")
+
+        # Should return True because empty list means "no filtering"
+        assert gate.can_access_key(key) is True
+
+    @pytest.mark.parametrize(
+        "course, block_type, expected",
+        (
+            # Course1 has empty filter - should allow all block types
+            ("course1", "html", True),
+            ("course1", "video", True),
+            ("course1", "problem", True),
+            ("course1", "vertical", True),
+            # Course2 has non-empty filter - should only allow html and video
+            ("course2", "html", True),
+            ("course2", "video", True),
+            ("course2", "problem", False),
+            ("course2", "vertical", False),
+        ),
+    )
+    def test_mixed_empty_and_non_empty_course_filters(
+        self, course, block_type, expected
+    ):
+        """Mixed empty and non-empty course filters should work correctly"""
+        gate = factories.LaunchGateFactory.build(
+            allowed_orgs=["org1"],
+            course_block_filter={
+                "course-v1:org1+course1+run": [],  # Empty - no filtering
+                "course-v1:org1+course2+run": [
+                    "html",
+                    "video",
+                ],  # Non-empty - filtering
+            },
+        )
+        key = UsageKey.from_string(
+            f"block-v1:org1+{course}+run+type@{block_type}+block@html_id"
+        )
+
+        assert gate.can_access_key(key) is expected
+
+    def test_all_access_controls_empty_returns_false(self):
+        """When all access controls are empty lists, should return False"""
+        gate = factories.LaunchGateFactory.build(
+            allowed_keys=[],
+            allowed_courses=[],
+            allowed_orgs=[],
+        )
+        key = UsageKey.from_string("block-v1:org1+course1+run+type@html+block@html_id")
+
+        # Should return False because no access is granted
+        assert gate.can_access_key(key) is False
