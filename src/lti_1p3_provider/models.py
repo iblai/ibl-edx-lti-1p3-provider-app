@@ -533,9 +533,44 @@ class LaunchGate(models.Model):
                 )
 
     def can_access_key(self, usage_key: UsageKey) -> bool:
-        """Return True if tool can access usage_key
+        """
+        Determine if the tool can access the given usage key.
 
-        This is evaluated as an OR of allowed_keys, allowed_courses, allowed_orgs
+        This method performs a two-stage evaluation:
+        1. **Access Control Check**: Verifies if the usage key is allowed based on
+           allowed_keys, allowed_courses, or allowed_orgs (OR logic - any match grants access)
+        2. **Block Type Filter Check**: Verifies if the usage key's block type is allowed
+           based on block type filters (with specific precedence rules)
+
+        **Block Type Filter Precedence (evaluated in order):**
+
+        1. **Course-specific filters** (`course_block_filter`): If the usage key's course
+           has specific block type restrictions, only those block types are allowed.
+           This takes highest precedence.
+
+        2. **Organization-specific filters** (`org_block_filter`): If the usage key's
+           organization has specific block type restrictions and no course-specific
+           filter applies, only those block types are allowed.
+
+        3. **Global filters** (`block_filter`): If no course or org-specific filters
+           apply, the global block type filter is enforced.
+
+        4. **No filters**: If no block type filters are configured, all block types
+           are allowed (assuming access control passes).
+
+        **Examples:**
+        - If course_block_filter allows ['html', 'video'] for a course, only those
+          block types are allowed for that course, regardless of org or global filters
+        - If org_block_filter allows ['problem'] for an org and no course-specific
+          filter exists, only 'problem' blocks are allowed for that org
+        - If only block_filter is set to ['vertical'], only 'vertical' blocks are
+          allowed globally (unless overridden by course/org filters)
+
+        Args:
+            usage_key: The UsageKey to check access for
+
+        Returns:
+            bool: True if the tool can access the usage key, False otherwise
         """
         can_access = self._is_usage_key_allowed(usage_key)
         is_allowed = self._is_block_type_allowed(usage_key)
@@ -573,15 +608,13 @@ class LaunchGate(models.Model):
         # if the block type is in courses block filter, we're not filtered out
         course_block_filter = self.course_block_filter.get(course_key_str, [])
         if course_block_filter:
-            if block_type not in course_block_filter:
-                return False
+            return False if block_type not in course_block_filter else True
 
         # if the block type is in orgs block filter, we're not filtered out
         org = usage_key.course_key.org
         org_block_filter = self.org_block_filter.get(org, [])
         if org_block_filter:
-            if block_type not in org_block_filter:
-                return False
+            return False if block_type not in org_block_filter else True
 
         # if we're in the global block filter, we're not filtered out
         if self.block_filter and block_type not in self.block_filter:
