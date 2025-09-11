@@ -594,23 +594,21 @@ class LtiToolLaunchView(LtiToolView):
             DEFAULT_DEEP_LINKING_SESSION_DURATION_SEC,
         )
 
-        tool = self.lti_tool_config.get_lti_tool(
-            iss=self.launch_message.get_iss(),
-            client_id=self.launch_message.get_client_id(),
-        )
-
-        tool_info = {
-            "issuer": tool.issuer,
-            "client_id": tool.client_id,
-        }
-
-        store_deep_linking_context(
+        stored_data = store_deep_linking_context(
             session=self.request.session,
             token=token,
-            tool_info=tool_info,
-            launch_data=self.launch_data,
             launch_id=self.launch_message.get_launch_id(),
             session_duration_sec=session_duration_sec,
+        )
+
+        log.info(
+            "Stored deep linking context for Tool (issuer=%s, client_id=%s, launch_id=%s) with "
+            "token %s (expires at %s)",
+            self.launch_message.get_iss(),
+            self.launch_message.get_client_id(),
+            self.launch_message.get_launch_id(),
+            token[:8] + "...",
+            stored_data["expires_at"],
         )
 
         return token

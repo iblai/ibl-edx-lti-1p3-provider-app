@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import typing as t
 import uuid
 from datetime import datetime, timedelta
 
@@ -61,19 +62,15 @@ def _get_deep_linking_session_key(token: str) -> str:
 def store_deep_linking_context(
     session: SessionBase,
     token: str,
-    tool_info: dict,
-    launch_data: dict,
     launch_id: str,
     session_duration_sec: int = 1800,
-) -> None:
+) -> dict[str, t.Any]:
     """
     Store deep linking context in session with token-specific key.
 
     Args:
         session: Django session object
         token: Unique token for this session
-        tool_info: Information about the LTI tool (issuer, client_id)
-        launch_data: LTI launch data
         deep_link_data: Deep linking specific data
         session_duration_sec: Session duration in seconds (default 30 minutes)
     """
@@ -83,22 +80,13 @@ def store_deep_linking_context(
     session_key = _get_deep_linking_session_key(token)
     session[session_key] = {
         "token": token,
-        "tool_info": tool_info,
-        "launch_data": launch_data.copy(),
+        "launch_id": launch_id,
         "created_at": now.timestamp(),
         "expires_at": expires_at.timestamp(),
-        "launch_id": launch_id,
     }
 
     session.modified = True
-
-    log.info(
-        "Stored deep linking context for Tool (issuer=%s, client_id=%s) with token %s (expires at %s)",
-        tool_info["issuer"],
-        tool_info["client_id"],
-        token[:8] + "...",
-        expires_at.isoformat(),
-    )
+    return session[session_key]
 
 
 def validate_deep_linking_session(
