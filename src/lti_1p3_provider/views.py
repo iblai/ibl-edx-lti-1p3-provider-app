@@ -817,7 +817,37 @@ class DeepLinkingContentSelectionView(View):
         except DeepLinkingError as e:
             return render_edx_error(request, e.title, e.message, status=e.status_code)
 
-        # Validate that the selected content exists in their launch gate
+        tool_info = dl_context["tool_info"]
+        tool = self._get_lti_tool(tool_info["issuer"], tool_info["client_id"])
+        target_xblock = request.POST.get("deep_link_content")
+
+        # TODO: Handle this error better
+        if not target_xblock:
+            raise ValueError("Missing deep_link_content key")
+
+        try:
+            gate = tool.launch_gate  # noqa: B018
+
+        except LaunchGate.DoesNotExist:
+            log.error(
+                "Tool (iss=%s, client_id=%s) has no LaunchGate; denying access",
+                tool.issuer,
+                tool.client_id,
+            )
+            return render_edx_error(
+                request,
+                title="No Accessible Content",
+                error="Tool does not have access to any content. Please contact your administrator.",
+                status=403,
+            )
+
+        if not gate.can_access_key(target_xblock):
+            return render_edx_error(
+                request,
+                title="Permission Denied",
+                error="You do not have permission for the selected content. Please contact your administrator.",
+                status=403,
+            )
 
         # Clear the deep linking session since content has been selected
         clear_deep_linking_session(session=request.session, token=token)
@@ -825,12 +855,12 @@ class DeepLinkingContentSelectionView(View):
         # Generate hardcoded deep linking response
         tool_info = dl_context["tool_info"]
         launch_data = dl_context["launch_data"]
+        target_link_uri = self._get_target_link_uri(UsageKey.from_string(target_xblock))
 
         # Create a hardcoded LTI resource link to return to the platform
         resource = DeepLinkResource()
-        resource.set_url("https://example.com/lti-content")
+        resource.set_url(target_link_uri)
         resource.set_title("Sample LTI Content")
-        resource.set_text("A sample piece of content selected via Deep Linking")
 
         # Create the message launch instance to generate response
         message_launch = DjangoMessageLaunch(
@@ -843,6 +873,18 @@ class DeepLinkingContentSelectionView(View):
         )
 
         return HttpResponse(deep_link_response, content_type="text/html")
+
+    def _get_target_link_uri(self, usage_key: UsageKey) -> str:
+        """Generate absolute target_link_uri to xblock usage_key"""
+        return self.request.build_absolute_uri(
+            reverse(
+                "lti_1p3_provider:lti-display",
+                kwargs={
+                    "course_id": str(usage_key.course_key),
+                    "usage_id": str(usage_key),
+                },
+            )
+        )
 
     def _get_lti_tool(self, issuer: str, client_id: str) -> LtiTool:
         """Return LtiTool from issuer and client_id"""
