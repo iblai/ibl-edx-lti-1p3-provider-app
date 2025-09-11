@@ -101,7 +101,7 @@ class LtiToolView(View):
         """
         super().setup(request, *args, **kwds)
         self.lti_tool_config = DjangoDbToolConf()
-        self.lti_tool_storage = DjangoCacheDataStorage(cache_name="default")
+        self.lti_tool_storage = DjangoCacheDataStorage()
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -765,7 +765,10 @@ class DeepLinkingContentSelectionView(LtiToolView):
             return render_edx_error(request, e.title, e.message, status=e.status_code)
 
         self.launch_message = DjangoMessageLaunch.from_cache(
-            deep_link_context["launch_id"], request, self.lti_tool_config
+            deep_link_context["launch_id"],
+            request,
+            self.lti_tool_config,
+            launch_data_storage=self.lti_tool_storage,
         )
 
         tool = self.lti_tool_config.get_lti_tool(
