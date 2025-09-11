@@ -5,16 +5,286 @@
 <%inherit file="/main.html" />
 <%namespace name='static' file='../static_content.html'/>
 
+<%block name="head_extra">
+  <style>
+    .content-selection-container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      font-family: 'Open Sans', Arial, sans-serif;
+    }
+    
+    .content-selection-header {
+      text-align: center;
+      margin-bottom: 30px;
+      padding-bottom: 20px;
+      border-bottom: 2px solid #e0e0e0;
+    }
+    
+    .content-selection-header h1 {
+      color: #2c3e50;
+      font-size: 2.2em;
+      margin-bottom: 10px;
+      font-weight: 300;
+    }
+    
+    .content-selection-header p {
+      color: #7f8c8d;
+      font-size: 1.1em;
+      margin: 0;
+    }
+    
+    .organization-section {
+      margin-bottom: 40px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .organization-title {
+      color: #34495e;
+      font-size: 1.4em;
+      font-weight: 600;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #bdc3c7;
+    }
+    
+    .course-section {
+      margin-bottom: 25px;
+      background: white;
+      border-radius: 6px;
+      padding: 15px;
+      border-left: 4px solid #3498db;
+    }
+    
+    .course-title {
+      color: #2c3e50;
+      font-size: 1.2em;
+      font-weight: 500;
+      margin-bottom: 15px;
+    }
+    
+    .content-options {
+      display: grid;
+      gap: 12px;
+    }
+    
+    .content-option {
+      display: flex;
+      align-items: flex-start;
+      padding: 15px;
+      border: 2px solid #ecf0f1;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      background: white;
+    }
+    
+    .content-option:hover {
+      border-color: #3498db;
+      box-shadow: 0 2px 8px rgba(52, 152, 219, 0.15);
+      transform: translateY(-1px);
+    }
+    
+    .content-option.selected {
+      border-color: #27ae60;
+      background: #f8fff8;
+      box-shadow: 0 2px 8px rgba(39, 174, 96, 0.15);
+    }
+    
+    .content-option input[type="radio"] {
+      margin-right: 12px;
+      margin-top: 2px;
+      transform: scale(1.2);
+    }
+    
+    .content-option-details {
+      flex: 1;
+    }
+    
+    .content-option-title {
+      font-size: 1.1em;
+      font-weight: 500;
+      color: #2c3e50;
+      margin-bottom: 5px;
+    }
+    
+    .content-option-type {
+      display: inline-block;
+      background: #ecf0f1;
+      color: #7f8c8d;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.85em;
+      margin-bottom: 8px;
+    }
+    
+    .content-option-description {
+      color: #7f8c8d;
+      font-size: 0.95em;
+      line-height: 1.4;
+    }
+    
+    .submit-section {
+      text-align: center;
+      margin-top: 40px;
+      padding-top: 30px;
+      border-top: 2px solid #e0e0e0;
+    }
+    
+    .submit-button {
+      background: linear-gradient(135deg, #3498db, #2980b9);
+      color: white;
+      border: none;
+      padding: 15px 40px;
+      font-size: 1.1em;
+      font-weight: 500;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 4px rgba(52, 152, 219, 0.3);
+    }
+    
+    .submit-button:hover {
+      background: linear-gradient(135deg, #2980b9, #1f4e79);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 8px rgba(52, 152, 219, 0.4);
+    }
+    
+    .submit-button:disabled {
+      background: #bdc3c7;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    
+    .no-content-message {
+      text-align: center;
+      color: #7f8c8d;
+      font-style: italic;
+      padding: 40px 20px;
+      background: #f8f9fa;
+      border-radius: 6px;
+      margin: 20px 0;
+    }
+    
+    .form-required-notice {
+      background: #fff3cd;
+      border: 1px solid #ffeaa7;
+      color: #856404;
+      padding: 12px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+      font-size: 0.9em;
+    }
+  </style>
+</%block>
 
 <section class="container">
   <section class="outside-app">
-    <h1>${title}</h1>
-    <form method="post" action="">
-      <div class="form-group">
-        <label for="deep_link_content">${_('Select Deep Link Content')}:</label>
-        <select class="form-control" id="deep_link_content" name="deep_link_content">
-        </select>
+    <div class="content-selection-container">
+      <div class="content-selection-header">
+        <h1>${title}</h1>
+        <p>${_('Choose the content you would like to link to your course')}</p>
       </div>
-      <button type="submit" class="btn btn-primary">${_('Submit')}</button>
+      
+      <form method="post" action="" id="content-selection-form">
+        % if selectable_content:
+          <div class="form-required-notice">
+            <strong>${_('Required:')}</strong> ${_('Please select one content item below to continue.')}
+          </div>
+          
+          % for org, courses in selectable_content.items():
+            <div class="organization-section">
+              <h2 class="organization-title">${org}</h2>
+              
+              % for course in courses:
+                <div class="course-section">
+                  <h3 class="course-title">${course["title"]}</h3>
+                  
+                  % if course["children"]:
+                    <div class="content-options">
+                      % for child in course["children"]:
+                        <label class="content-option" for="content_${child["usage_key"]}">
+                          <input type="radio" 
+                                 id="content_${child["usage_key"]}" 
+                                 name="deep_link_content" 
+                                 value="${child["usage_key"]}"
+                                 required>
+                          <div class="content-option-details">
+                            <div class="content-option-title">${child["title"]}</div>
+                            <div class="content-option-type">${child["block_type"]}</div>
+                            % if child["description"]:
+                              <div class="content-option-description">${child["description"]}</div>
+                            % endif
+                          </div>
+                        </label>
+                      % endfor
+                    </div>
+                  % else:
+                    <div class="no-content-message">
+                      ${_('No selectable content available in this course.')}
+                    </div>
+                  % endif
+                </div>
+              % endfor
+            </div>
+          % endfor
+        % else:
+          <div class="no-content-message">
+            <h3>${_('No Content Available')}</h3>
+            <p>${_('There is no content available for selection at this time. Please contact your administrator.')}</p>
+          </div>
+        % endif
+        
+        <div class="submit-section">
+          <button type="submit" class="submit-button" ${'disabled' if not selectable_content else ''}>
+            ${_('Select Content')}
+          </button>
+        </div>
+      </form>
+    </div>
   </section>
 </section>
+
+<script>
+  // Add visual feedback for radio button selection
+  document.addEventListener('DOMContentLoaded', function() {
+    const radioButtons = document.querySelectorAll('input[name="deep_link_content"]');
+    const submitButton = document.querySelector('.submit-button');
+    
+    radioButtons.forEach(function(radio) {
+      radio.addEventListener('change', function() {
+        // Remove selected class from all options
+        document.querySelectorAll('.content-option').forEach(function(option) {
+          option.classList.remove('selected');
+        });
+        
+        // Add selected class to the chosen option
+        if (this.checked) {
+          this.closest('.content-option').classList.add('selected');
+        }
+        
+        // Enable submit button if a selection is made
+        if (submitButton) {
+          submitButton.disabled = false;
+        }
+      });
+    });
+    
+    // Form validation
+    const form = document.getElementById('content-selection-form');
+    if (form) {
+      form.addEventListener('submit', function(e) {
+        const selectedContent = document.querySelector('input[name="deep_link_content"]:checked');
+        if (!selectedContent) {
+          e.preventDefault();
+          alert('${_("Please select a content item before submitting.")}');
+          return false;
+        }
+      });
+    }
+  });
+</script>
