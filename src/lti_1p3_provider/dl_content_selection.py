@@ -137,7 +137,7 @@ def _fetch_explicitly_allowed_blocks(
 
 def _get_course_content(
     m: MixedModuleStore, course: Any, launch_gate: LaunchGate, allowed_keys: list[str]
-) -> list[Content]:
+) -> Content:
     """Get course content with filtering applied"""
     # Build course content structure
     content = build_content_from_block(course)
