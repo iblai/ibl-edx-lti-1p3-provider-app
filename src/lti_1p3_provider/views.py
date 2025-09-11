@@ -13,6 +13,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login
 from django.http import (
     Http404,
+    HttpRequest,
     HttpResponse,
     HttpResponseBadRequest,
     JsonResponse,
@@ -608,6 +609,7 @@ class LtiToolLaunchView(LtiToolView):
             token=token,
             tool_info=tool_info,
             launch_data=self.launch_data,
+            launch_id=self.launch_message.get_launch_id(),
             session_duration_sec=session_duration_sec,
         )
 
@@ -744,7 +746,7 @@ class LtiOrgToolJwksView(LtiToolView):
 
 
 @method_decorator(requires_lti_enabled, name="dispatch")
-class DeepLinkingContentSelectionView(View):
+class DeepLinkingContentSelectionView(LtiToolView):
     """
     Content selection view for LTI Deep Linking.
 
@@ -752,15 +754,8 @@ class DeepLinkingContentSelectionView(View):
     a deep linking launch. Access is controlled by session-based validation.
     """
 
-    def get(self, request, token: str):
-        """
-        Display content selection interface for deep linking.
-
-        Args:
-            token: Unique token for this deep linking session
-        """
+    def dispatch(self, request: HttpRequest, token: str) -> HttpResponse:
         try:
-            # Validate session has deep linking access for this token
             deep_link_context = validate_deep_linking_session(
                 session=request.session,
                 token=token,
@@ -769,12 +764,16 @@ class DeepLinkingContentSelectionView(View):
         except DeepLinkingError as e:
             return render_edx_error(request, e.title, e.message, status=e.status_code)
 
-        # TODO: Implement content selection UI
-        # For now, return a simple page with hardcoded content selection
-        tool_info = deep_link_context["tool_info"]
-        tool = self._get_lti_tool(tool_info["issuer"], tool_info["client_id"])
+        self.launch_message = DjangoMessageLaunch.from_cache(
+            deep_link_context["launch_id"], request, self.lti_tool_config
+        )
+
+        tool = self.lti_tool_config.get_lti_tool(
+            self.launch_message.get_iss(), self.launch_message.get_client_id()
+        )
+
         try:
-            gate = tool.launch_gate  # noqa: B018
+            self.launch_gate = tool.launch_gate
         except LaunchGate.DoesNotExist:
             log.error(
                 "Tool (iss=%s, client_id=%s) has no LaunchGate; denying access",
@@ -787,14 +786,23 @@ class DeepLinkingContentSelectionView(View):
                 error="Tool does not have access to any content. Please contact your administrator.",
                 status=403,
             )
+        return super().dispatch(request, token)
 
-        selectable_content = get_selectable_dl_content(gate)
+    def get(self, request, token: str):
+        """
+        Display content selection interface for deep linking.
+
+        Args:
+            token: Unique token for this deep linking session
+        """
+
+        selectable_content = get_selectable_dl_content(self.launch_gate)
 
         context = {
             "title": "Select Content to Return",
             "selectable_content": selectable_content,
-            "issuer": tool.issuer,
-            "client_id": tool.client_id,
+            "issuer": self.launch_message.get_iss(),
+            "client_id": self.launch_message.get_client_id(),
         }
         return render(
             self.request, "lti_1p3_provider/select_deep_link_content.html", context
@@ -807,71 +815,39 @@ class DeepLinkingContentSelectionView(View):
         Args:
             token: Unique token for this deep linking session
         """
-        try:
-            # Validate session has deep linking access for this token
-            dl_context = validate_deep_linking_session(
-                session=request.session,
-                token=token,
-                user_authenticated=request.user.is_authenticated,
-            )
-        except DeepLinkingError as e:
-            return render_edx_error(request, e.title, e.message, status=e.status_code)
 
-        tool_info = dl_context["tool_info"]
-        tool = self._get_lti_tool(tool_info["issuer"], tool_info["client_id"])
         target_xblock = request.POST.get("deep_link_content")
 
-        # TODO: Handle this error better
+        # TODO: Handle this error better - return template again w/ errors
         if not target_xblock:
             raise ValueError("Missing deep_link_content key")
 
-        try:
-            gate = tool.launch_gate  # noqa: B018
-
-        except LaunchGate.DoesNotExist:
-            log.error(
-                "Tool (iss=%s, client_id=%s) has no LaunchGate; denying access",
-                tool.issuer,
-                tool.client_id,
-            )
-            return render_edx_error(
-                request,
-                title="No Accessible Content",
-                error="Tool does not have access to any content. Please contact your administrator.",
-                status=403,
-            )
-
-        if not gate.can_access_key(UsageKey.from_string(target_xblock)):
+        if not self.launch_gate.can_access_key(UsageKey.from_string(target_xblock)):
             return render_edx_error(
                 request,
                 title="Permission Denied",
-                error="You do not have permission for the selected content. Please contact your administrator.",
+                error=(
+                    "You do not have permission for the selected content. "
+                    "Please contact your administrator."
+                ),
                 status=403,
             )
 
         # Clear the deep linking session since content has been selected
         clear_deep_linking_session(session=request.session, token=token)
 
-        # Generate hardcoded deep linking response
-        tool_info = dl_context["tool_info"]
-        launch_data = dl_context["launch_data"]
         target_link_uri = self._get_target_link_uri(UsageKey.from_string(target_xblock))
-
-        # Create a hardcoded LTI resource link to return to the platform
         resource = DeepLinkResource()
         resource.set_url(target_link_uri)
+        # TODO: Find a way to return a better title - can get from the orirginal Content?
         resource.set_title("Sample LTI Content")
 
-        # Create the message launch instance to generate response
-        message_launch = DjangoMessageLaunch(
-            request, self.lti_tool_config, launch_data=launch_data
-        )
-
         # Generate the deep link response with the hardcoded content
-        deep_link_response = message_launch.get_deep_link().output_response_form(
+        deep_link_response = self.launch_message.get_deep_link().output_response_form(
             [resource]
         )
 
+        # TODO: Should be returning a redirect here
         return HttpResponse(deep_link_response, content_type="text/html")
 
     def _get_target_link_uri(self, usage_key: UsageKey) -> str:
