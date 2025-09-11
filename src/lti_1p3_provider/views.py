@@ -841,7 +841,7 @@ class DeepLinkingContentSelectionView(View):
                 status=403,
             )
 
-        if not gate.can_access_key(target_xblock):
+        if not gate.can_access_key(UsageKey.from_string(target_xblock)):
             return render_edx_error(
                 request,
                 title="Permission Denied",
