@@ -128,10 +128,18 @@ def validate_deep_linking_session(
             message="This content selection link is invalid or expired. Please launch again from your learning platform.",
             status_code=404,
         )
-
-    tool_info = dl_context["tool_info"]
-    tool_text = f"issuer={tool_info['issuer']}, client_id={tool_info['client_id']}"
-
+    launch_id = dl_context.get("launch_id")
+    if not launch_id:
+        log.error(
+            "Deep linking access denied: no launch id in context for token %s...",
+            token[:8],
+        )
+        raise DeepLinkingError(
+            title="Invalid Access Link",
+            message="This content selection link is invalid. Please launch again from your learning platform.",
+            status_code=400,
+        )
+    tool_text = f"launch_id={launch_id}"
     # Validate token matches (extra security check)
     if dl_context.get("token") != token:
         log.error(
