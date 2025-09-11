@@ -557,7 +557,7 @@ class LaunchGate(models.Model):
 
     def _is_block_type_allowed(self, usage_key: UsageKey) -> bool:
         """Return True if usage key's block_type is allowed"""
-        # If not filters are set, nothing is filtered out
+        # If no filters are set, nothing is filtered out
         if not any(
             [
                 bool(self.block_filter),
@@ -567,25 +567,27 @@ class LaunchGate(models.Model):
         ):
             return True
 
-        # if we're in the global block filter, we're not filtered out
-        if usage_key.block_type in self.block_filter:
-            return True
-
-        course_key_str = str(usage_key.course_key)
         block_type = usage_key.block_type
+        course_key_str = str(usage_key.course_key)
 
         # if the block type is in courses block filter, we're not filtered out
         course_block_filter = self.course_block_filter.get(course_key_str, [])
-        if block_type in course_block_filter:
-            return True
+        if course_block_filter:
+            if block_type not in course_block_filter:
+                return False
 
         # if the block type is in orgs block filter, we're not filtered out
         org = usage_key.course_key.org
         org_block_filter = self.org_block_filter.get(org, [])
-        if block_type in org_block_filter:
-            return True
+        if org_block_filter:
+            if block_type not in org_block_filter:
+                return False
 
-        return False
+        # if we're in the global block filter, we're not filtered out
+        if self.block_filter and block_type not in self.block_filter:
+            return False
+
+        return True
 
 
 class LtiToolOrg(models.Model):
