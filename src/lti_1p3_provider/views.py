@@ -788,9 +788,7 @@ class DeepLinkingContentSelectionView(View):
                 status=403,
             )
 
-        selectable_content = get_selectable_dl_content(
-            keys=gate.allowed_keys, courses=gate.allowed_courses, orgs=gate.allowed_orgs
-        )
+        selectable_content = get_selectable_dl_content(gate)
 
         context = {
             "title": "Select Content to Return",
