@@ -63,6 +63,7 @@ def store_deep_linking_context(
     token: str,
     tool_info: dict,
     launch_data: dict,
+    launch_id: str,
     session_duration_sec: int = 1800,
 ) -> None:
     """
@@ -86,6 +87,7 @@ def store_deep_linking_context(
         "launch_data": launch_data.copy(),
         "created_at": now.timestamp(),
         "expires_at": expires_at.timestamp(),
+        "launch_id": launch_id,
     }
 
     session.modified = True
