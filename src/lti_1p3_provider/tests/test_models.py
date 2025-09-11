@@ -252,16 +252,17 @@ class TestLtiGradedResource:
         assert last_request.json() == expected_payload
 
 
-@pytest.mark.django_db
-class TestLaunchGate:
-    def test_can_access_key_empty_sets_returns_false(self):
-        """If neither allowed_keys nor allowed_orgs is set, returns False"""
+class TestLaunchGateCanAccessKeyNoBlockTypeFilters:
+    """Tests can_access_key when no block type filters are set"""
+
+    def test_empty_sets_returns_false(self):
+        """If not allowed_keys, allowed_courses, or allowed_orgs is set, returns False"""
         key = UsageKey.from_string("block-v1:org+course+run+type@some+block@html_id")
-        gate = factories.LaunchGateFactory()
+        gate = factories.LaunchGateFactory.build()
 
         assert not gate.can_access_key(key)
 
-    def test_can_access_key_not_in_keys_or_courses_or_orgs_returns_false(self):
+    def test_key_not_in_keys_or_courses_or_orgs_returns_false(self):
         """If target key not in allowed_keys or allowed_orgs, returns False"""
         allowed_keys = [
             UsageKey.from_string("block-v1:no+course+run+type@some+block@html_id1"),
@@ -275,7 +276,7 @@ class TestLaunchGate:
         )
         # target org not org1/org2, target key not in allowed_keys, not in
         # allowed_courses
-        gate = factories.LaunchGateFactory(
+        gate = factories.LaunchGateFactory.build(
             allowed_keys=allowed_keys,
             allowed_courses=allowed_courses,
             allowed_orgs=allowed_orgs,
@@ -283,7 +284,7 @@ class TestLaunchGate:
 
         assert not gate.can_access_key(target_key)
 
-    def test_can_access_key_in_allowed_keys_returns_true(self):
+    def test_key_in_allowed_keys_returns_true(self):
         """If target key in allowed_keys, returns True"""
         allowed_keys = [
             UsageKey.from_string("block-v1:org+course+run+type@some+block@html_id1"),
@@ -291,7 +292,7 @@ class TestLaunchGate:
         ]
         key = allowed_keys[1]
         allowed_keys = [str(key) for key in allowed_keys]
-        gate = factories.LaunchGateFactory(allowed_keys=allowed_keys)
+        gate = factories.LaunchGateFactory.build(allowed_keys=allowed_keys)
 
         assert gate.can_access_key(key)
 
@@ -303,9 +304,9 @@ class TestLaunchGate:
             UsageKey.from_string("block-v1:org2+other+run+type@some+block@html_id"),
         ),
     )
-    def test_can_access_key_allowed_in_allowed_orgs_returns_true(self, key):
+    def test_key_in_allowed_orgs_returns_true(self, key):
         """If target key in allowed_orgs, returns True"""
-        gate = factories.LaunchGateFactory(allowed_orgs=["org1", "org2"])
+        gate = factories.LaunchGateFactory.build(allowed_orgs=["org1", "org2"])
 
         assert gate.can_access_key(key)
 
@@ -317,10 +318,92 @@ class TestLaunchGate:
             UsageKey.from_string("block-v1:org2+other+run+type@some+block@html_id"),
         ),
     )
-    def test_can_access_key_allowed_in_allowed_courses_returns_true(self, key):
+    def test_key_in_allowed_courses_returns_true(self, key):
         """If target key in allowed_courses, returns True"""
         course1 = CourseKey.from_string("course-v1:org1+course+run")
         course2 = CourseKey.from_string("course-v1:org2+other+run")
-        gate = factories.LaunchGateFactory(allowed_courses=[str(course1), str(course2)])
+        gate = factories.LaunchGateFactory.build(
+            allowed_courses=[str(course1), str(course2)]
+        )
 
         assert gate.can_access_key(key)
+
+
+class TestLaunchGateCanAccessKeyWithBlockTypeFilters:
+    def test_block_type_not_in_block_filter_returns_false(self):
+        """If target key's block type not in global block filter, returns False"""
+        gate = factories.LaunchGateFactory.build(
+            allowed_orgs=["org1"], block_filter=["html"]
+        )
+        key = UsageKey.from_string(
+            "block-v1:org1+course+run+type@unknown+block@html_id"
+        )
+
+        assert not gate.can_access_key(key)
+
+    def tests_block_type_in_block_filter_returns_true(self):
+        """If target key's block type in global block filter, returns True"""
+        gate = factories.LaunchGateFactory.build(
+            allowed_orgs=["org1"], block_filter=["html"]
+        )
+        key = UsageKey.from_string("block-v1:org1+course+run+type@html+block@html_id")
+
+        assert gate.can_access_key(key)
+
+    @pytest.mark.parametrize(
+        "course, block_type, expected",
+        (
+            # only specific types for org1 are allowed
+            ("course1", "html", True),
+            ("course1", "video", True),
+            ("course1", "problem", False),
+            ("course1", "vertical", False),
+            # All types for course2 are allowed since no specific filter for them
+            ("course2", "html", True),
+            ("course2", "video", True),
+            ("course2", "problem", True),
+            ("course2", "vertical", True),
+        ),
+    )
+    def test_course_block_filter(self, course, block_type, expected):
+        """If target key's block type in course block filter, returns True"""
+        # All keys from org1 are allowed; only html and video are allowed for course1
+        # All other keys are allowed for all other courses in org1
+        gate = factories.LaunchGateFactory.build(
+            allowed_orgs=["org1"],
+            course_block_filter={"course-v1:org1+course1+run": ["html", "video"]},
+        )
+        key = UsageKey.from_string(
+            f"block-v1:org1+{course}+run+type@{block_type}+block@html_id"
+        )
+
+        assert gate.can_access_key(key) is expected
+
+    @pytest.mark.parametrize(
+        "org, course, block_type, expected",
+        (
+            # only specific types for org1 are allowed
+            ("org1", "course1", "html", True),
+            ("org1", "course2", "video", True),
+            ("org1", "course1", "problem", False),
+            ("org1", "course2", "vertical", False),
+            # All types for org2 are allowed since no specific filter for them
+            ("org2", "course1", "html", True),
+            ("org2", "course2", "video", True),
+            ("org2", "course1", "problem", True),
+            ("org2", "course2", "vertical", True),
+        ),
+    )
+    def test_org_block_filter(self, org, course, block_type, expected):
+        """If target key's block type in org block filter, returns True"""
+        # only html/video blocks allowed for courses in org 1
+        # all types allowed for courses in org 2
+        gate = factories.LaunchGateFactory.build(
+            allowed_orgs=["org1", "org2"],
+            org_block_filter={"org1": ["html", "video"]},
+        )
+        key = UsageKey.from_string(
+            f"block-v1:{org}+{course}+run+type@{block_type}+block@html_id"
+        )
+
+        assert gate.can_access_key(key) is expected
