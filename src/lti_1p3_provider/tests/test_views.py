@@ -1147,11 +1147,7 @@ class TestLtiDeepLinkLaunch:
         assert len(dl_session_key) == 1
         ctx = client.session[dl_session_key[0]]
         assert ctx["token"] == token
-        assert ctx["tool_info"] == {
-            "issuer": self.tool.issuer,
-            "client_id": self.tool.client_id,
-        }
-        assert ctx["launch_data"]
+        assert ctx["launch_id"] is not None
         assert ctx["created_at"] is not None
         assert ctx["expires_at"] is not None
         assert ctx["expires_at"] >= ctx["created_at"]
