@@ -433,7 +433,7 @@ def block_filter_default() -> dict:
     """
     Default block filter.
     """
-    return getattr(settings, "LTI_BLOCK_FILTER_DEFAULT", {})
+    return getattr(settings, "LTI_BLOCK_FILTER_DEFAULT", [])
 
 
 class LaunchGate(models.Model):
