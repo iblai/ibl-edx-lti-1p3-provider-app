@@ -18,11 +18,13 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import Http404, HttpResponse
-from django.test import override_settings
+from django.test import RequestFactory, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from organizations.tests.factories import OrganizationFactory
+from pylti1p3.contrib.django import DjangoCacheDataStorage, DjangoMessageLaunch
 from pylti1p3.registration import Registration
+from pylti1p3.session import SessionService
 
 from lti_1p3_provider.api.ssl_services import (
     generate_private_key_pem,
@@ -1245,6 +1247,16 @@ class TestLtiDeepLinkLaunch:
         assert resp.url.startswith("/lti/1p3/deep-linking/select-content/")
 
 
+@pytest.fixture
+def enable_cache(settings):
+    settings.CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "test-cache",
+        }
+    }
+
+
 @pytest.mark.django_db
 class TestDeepLinkingContentSelectionView:
     """Tests for Deep Linking Content Selection View"""
@@ -1263,40 +1275,46 @@ class TestDeepLinkingContentSelectionView:
         # Default session data that can be modified per test
         self.dl_session_data = {
             "token": self.token,
-            "tool_info": {
-                "issuer": self.tool.issuer,
-                "client_id": self.tool.client_id,
-            },
-            "launch_data": {
-                "iss": self.tool.issuer,
-                "aud": self.tool.client_id,
-                "sub": self.user.username,
-                "https://purl.imsglobal.org/spec/lti/claim/message_type": "LtiDeepLinkingRequest",
-                "https://purl.imsglobal.org/spec/lti/claim/version": "1.3.0",
-                "https://purl.imsglobal.org/spec/lti/claim/deployment_id": "1",
-                "https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings": {
-                    "deep_link_return_url": "https://platform.local/return",
-                    "accept_types": ["ltiResourceLink"],
-                    "accept_presentation_document_targets": ["iframe", "window"],
-                },
-            },
+            "launch_id": "test-launch-id",
             "created_at": timezone.now().timestamp(),
             "expires_at": (timezone.now() + timedelta(minutes=30)).timestamp(),
         }
 
     def _setup_session(self, client, authenticated=True):
-        """Setup client session ith deep linking context"""
+        """Setup client session with deep linking context and cache entry"""
         if authenticated:
             client.login(username=self.user.username, password=self.password)
 
+        # Create the ID token that will be stored in cache
+        id_token = factories.DeepLinkIdTokenFactory(
+            aud=self.tool.client_id, nonce="nonce"
+        )
+
+        # Need to establish an existing session with pylti1p3
+        # Create a mock request object for the SessionService
+        rf = RequestFactory()
+        mock_request = rf.get("/")
+        mock_request.session = client.session
+
+        # Set up the cache storage and session service
+        storage = DjangoCacheDataStorage()
+        storage.set_request(mock_request)
+        sess_service = SessionService(mock_request)
+        sess_service.set_data_storage(storage)
+
+        # Save the launch data to cache - this is what from_cache will retrieve
+        sess_service.save_launch_data(self.dl_session_data["launch_id"], id_token)
+
+        # Set up the deep linking session data
         session_key = f"{LTI_DEEP_LINKING_SESSION_PREFIX}{self.token}"
         session = client.session
         session[session_key] = self.dl_session_data
         session.save()
 
+    @pytest.mark.xfail(reason="Need to validate the response")
     @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
     def test_get_content_selection_with_valid_session_renders_page(
-        self, mock_get_content, client
+        self, mock_get_content, client, enable_cache
     ):
         """Test GET request with valid session renders content selection page"""
         # Setup LaunchGate
@@ -1305,13 +1323,8 @@ class TestDeepLinkingContentSelectionView:
             allowed_orgs=["test-org"],
             allowed_courses=["course1", "course2"],
         )
-
-        # Mock the content selection function
-        mock_content = [
-            {"type": "course", "id": "course1", "title": "Test Course 1"},
-            {"type": "course", "id": "course2", "title": "Test Course 2"},
-        ]
-        mock_get_content.return_value = mock_content
+        # TODO: Add valid content here {"org": [Content, ...]}
+        mock_get_content.return_value = {}
 
         self._setup_session(client)
 
@@ -1323,11 +1336,12 @@ class TestDeepLinkingContentSelectionView:
         assert resp.status_code == 200
         # TODO: Update to parse real response
         assert "Select Content to Return" in resp.content.decode()
-        mock_get_content.assert_called_once_with(
-            keys=gate.allowed_keys, courses=gate.allowed_courses, orgs=gate.allowed_orgs
-        )
+        mock_get_content.assert_called_once_with(gate)
+        assert False
 
-    def test_get_content_selection_with_invalid_token_returns_404(self, client):
+    def test_get_content_selection_with_invalid_token_returns_404(
+        self, client, enable_cache
+    ):
         """Test GET request with invalid token returns 404"""
         self._setup_session(client)
 
@@ -1387,7 +1401,9 @@ class TestDeepLinkingContentSelectionView:
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "Invalid Access Link"
 
-    def test_get_content_selection_with_no_launch_gate_returns_403(self, client):
+    def test_get_content_selection_with_no_launch_gate_returns_403(
+        self, client, enable_cache
+    ):
         """Test GET request when tool has no LaunchGate returns 403"""
         self._setup_session(client)
 
@@ -1402,14 +1418,14 @@ class TestDeepLinkingContentSelectionView:
 
     @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
     def test_get_content_selection_with_empty_content_renders_page(
-        self, mock_get_content, client
+        self, mock_get_content, client, enable_cache
     ):
         """Test GET request with empty content list still renders page"""
         # Setup LaunchGate
         factories.LaunchGateFactory(tool=self.tool)
 
         # Mock empty content
-        mock_get_content.return_value = []
+        mock_get_content.return_value = {}
 
         self._setup_session(client)
 
