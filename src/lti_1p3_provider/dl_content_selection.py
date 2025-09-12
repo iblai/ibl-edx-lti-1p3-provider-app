@@ -73,7 +73,7 @@ def get_selectable_dl_content(launch_gate: LaunchGate) -> dict[str, list[Content
                     results[org].append(course_content)
 
         except InvalidKeyError:
-            # Skip invalid course keys
+            log.error(f"Invalid course key: {course_key_str}")
             continue
 
     explicitly_allowed_blocks = _fetch_explicitly_allowed_blocks(
