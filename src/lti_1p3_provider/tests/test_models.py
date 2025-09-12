@@ -547,3 +547,55 @@ class TestLaunchGateCanAccessKeyWithBlockTypeFilters:
 
         # Should return False because no access is granted
         assert gate.can_access_key(key) is False
+
+
+class TestLaunchGateAllowedKeysOverrideBlockFilters:
+    """Tests that keys in allowed_keys are allowed regardless of block filters"""
+
+    @pytest.mark.parametrize(
+        "block_type,filter_config",
+        [
+            # Test with global block_filter
+            ("problem", {"block_filter": ["html", "video"]}),
+            # Test with course_block_filter
+            (
+                "problem",
+                {
+                    "course_block_filter": {
+                        "course-v1:org1+course1+run": ["html", "video"]
+                    }
+                },
+            ),
+            # Test with org_block_filter
+            ("problem", {"org_block_filter": {"org1": ["html", "video"]}}),
+            # Test with combined filters
+            (
+                "problem",
+                {
+                    "block_filter": ["vertical"],
+                    "course_block_filter": {
+                        "course-v1:org1+course1+run": ["html", "video"]
+                    },
+                    "org_block_filter": {"org1": ["html", "video"]},
+                },
+            ),
+            # Test with different block types
+            ("vertical", {"block_filter": ["html", "video"]}),
+            ("unknown", {"block_filter": ["html", "video"]}),
+        ],
+    )
+    def test_allowed_keys_override_block_filters(self, block_type, filter_config):
+        """Keys in allowed_keys should be allowed even if blocked by any block filter"""
+        # Create a key that would normally be blocked by the filter
+        blocked_key = UsageKey.from_string(
+            f"block-v1:org1+course1+run+type@{block_type}+block@html_id"
+        )
+
+        gate = factories.LaunchGateFactory.build(
+            allowed_keys=[str(blocked_key)],
+            **filter_config,
+        )
+
+        # The key should be allowed because it's in allowed_keys, even though
+        # its block type would normally be blocked by the filter
+        assert gate.can_access_key(blocked_key) is True
