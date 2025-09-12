@@ -179,6 +179,32 @@
       margin-bottom: 20px;
       font-size: 0.9em;
     }
+    
+    .error-display {
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+      padding: 20px;
+      border-radius: 6px;
+      margin-bottom: 30px;
+      box-shadow: 0 2px 4px rgba(220, 53, 69, 0.1);
+    }
+    
+    .error-display h3 {
+      color: #721c24;
+      font-size: 1.2em;
+      font-weight: 600;
+      margin: 0 0 10px 0;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #f5c6cb;
+    }
+    
+    .error-display p {
+      color: #721c24;
+      font-size: 1em;
+      margin: 0;
+      line-height: 1.4;
+    }
   </style>
 </%block>
 
@@ -189,6 +215,13 @@
         <h1>${title}</h1>
         <p>${_('Choose the content you would like to link to your course')}</p>
       </div>
+      
+      % if error_title and error:
+        <div class="error-display">
+          <h3>${error_title}</h3>
+          <p>${error}</p>
+        </div>
+      % endif
       
       <form method="post" action="" id="content-selection-form">
         % if selectable_content:
@@ -274,7 +307,7 @@
       });
     });
     
-    // Form validation
+    // Form validation and double-submit prevention
     const form = document.getElementById('content-selection-form');
     if (form) {
       form.addEventListener('submit', function(e) {
@@ -283,6 +316,12 @@
           e.preventDefault();
           alert('${_("Please select a content item before submitting.")}');
           return false;
+        }
+        
+        // Disable submit button to prevent double submission
+        if (submitButton) {
+          submitButton.disabled = true;
+          submitButton.textContent = '${_("Processing...")}';
         }
       });
     }
