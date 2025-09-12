@@ -219,10 +219,7 @@ class TestDlSelection(ModuleStoreTestCase):
     def test_all_content_allowed(self):
         """Test when all orgs are allowed"""
         lg = LaunchGateFactory.build(
-            allowed_orgs=[
-                self.org1.short_name,
-                self.org2.short_name,
-            ]
+            allowed_orgs=[self.org1.short_name, self.org2.short_name]
         )
 
         content = get_selectable_dl_content(lg)
@@ -235,10 +232,16 @@ class TestDlSelection(ModuleStoreTestCase):
         # Two courses in org1
         org1_courses = content[self.org1.short_name]
         assert len(org1_courses) == 2
+        course_1_content = _get_course_content(org1_courses, str(self.course1.location))
+        assert not _find_missing_keys(course_1_content, self.all_lti_course1_blocks)
+        course_2_content = _get_course_content(org1_courses, str(self.course2.location))
+        assert not _find_missing_keys(course_2_content, self.all_lti_course2_blocks)
 
         # One course in org2
         org2_courses = content[self.org2.short_name]
         assert len(org2_courses) == 1
+        course_3_content = _get_course_content(org2_courses, str(self.course3.location))
+        assert not _find_missing_keys(course_3_content, self.all_lti_course3_blocks)
 
     def test_course_block_filter_with_allowed_orgs(self):
         """Test course block filter"""
@@ -498,3 +501,99 @@ class TestDlSelection(ModuleStoreTestCase):
         for child in course3_content["children"]:
             found_keys_org2.append(child["usage_key"])
         assert str(self.course3_problem1.location) in found_keys_org2
+
+    def test_filtering_by_allowed_courses_only(self):
+        """Test filtering by specific allowed courses instead of organizations"""
+        # Allow only course1 and course3 specifically
+        lg = LaunchGateFactory.build(
+            allowed_courses=[
+                str(self.course1.location.course_key),
+                str(self.course3.location.course_key),
+            ]
+        )
+
+        content = get_selectable_dl_content(lg)
+
+        assert_no_duplicate_content(content)
+        # Should have both orgs since course1 is in org1 and course3 is in org2
+        assert self.org1.short_name in content
+        assert self.org2.short_name in content
+
+        # Org1 should have only course1 (not course2)
+        org1_courses = content[self.org1.short_name]
+        assert len(org1_courses) == 1
+        course_1_content = _get_course_content(org1_courses, str(self.course1.location))
+        assert not _find_missing_keys(course_1_content, self.all_lti_course1_blocks)
+
+        # Org2 should have only course3
+        org2_courses = content[self.org2.short_name]
+        assert len(org2_courses) == 1
+        course_3_content = _get_course_content(org2_courses, str(self.course3.location))
+        assert not _find_missing_keys(course_3_content, self.all_lti_course3_blocks)
+
+    def test_filtering_by_allowed_courses_and_orgs_same_org(self):
+        """Test filtering by both allowed_courses and allowed_orgs where course is from same org"""
+        # Allow org1 and specifically allow course1 (which is also in org1)
+        lg = LaunchGateFactory.build(
+            allowed_orgs=[self.org1.short_name],
+            allowed_courses=[str(self.course1.location.course_key)],
+        )
+
+        content = get_selectable_dl_content(lg)
+
+        assert_no_duplicate_content(content)
+        # Should have org1
+        assert self.org1.short_name in content
+        assert self.org2.short_name not in content
+
+        # Org1 should have both course1 and course2 (from allowed_orgs)
+        # course1 is explicitly allowed via allowed_courses, course2 is allowed via allowed_orgs
+        org1_courses = content[self.org1.short_name]
+        assert len(org1_courses) == 2
+
+        usage_keys = [course["usage_key"] for course in org1_courses]
+        assert str(self.course1.location) in usage_keys
+        assert str(self.course2.location) in usage_keys
+
+        # Both courses should have all their content
+        course_1_content = _get_course_content(org1_courses, str(self.course1.location))
+        assert not _find_missing_keys(course_1_content, self.all_lti_course1_blocks)
+
+        course_2_content = _get_course_content(org1_courses, str(self.course2.location))
+        assert not _find_missing_keys(course_2_content, self.all_lti_course2_blocks)
+
+    def test_filtering_by_allowed_org_and_course_different_orgs(self):
+        """Test filtering by allowed_org and allowed_course where course is not in that org"""
+        # Allow org1 and specifically allow course3 (which is in org2, not org1)
+        lg = LaunchGateFactory.build(
+            allowed_orgs=[self.org1.short_name],
+            allowed_courses=[str(self.course3.location.course_key)],
+        )
+
+        content = get_selectable_dl_content(lg)
+
+        assert_no_duplicate_content(content)
+        # Should have both orgs since org1 is allowed and course3 is in org2
+        assert self.org1.short_name in content
+        assert self.org2.short_name in content
+
+        # Org1 should have both course1 and course2 (from allowed_orgs)
+        org1_courses = content[self.org1.short_name]
+        assert len(org1_courses) == 2
+
+        usage_keys = [course["usage_key"] for course in org1_courses]
+        assert str(self.course1.location) in usage_keys
+        assert str(self.course2.location) in usage_keys
+
+        # Both courses in org1 should have all their content
+        course_1_content = _get_course_content(org1_courses, str(self.course1.location))
+        assert not _find_missing_keys(course_1_content, self.all_lti_course1_blocks)
+
+        course_2_content = _get_course_content(org1_courses, str(self.course2.location))
+        assert not _find_missing_keys(course_2_content, self.all_lti_course2_blocks)
+
+        # Org2 should have only course3 (from allowed_courses)
+        org2_courses = content[self.org2.short_name]
+        assert len(org2_courses) == 1
+        course_3_content = _get_course_content(org2_courses, str(self.course3.location))
+        assert not _find_missing_keys(course_3_content, self.all_lti_course3_blocks)
