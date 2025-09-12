@@ -542,6 +542,8 @@ class LaunchGate(models.Model):
         2. **Block Type Filter Check**: Verifies if the usage key's block type is allowed
            based on block type filters (with specific precedence rules)
 
+        If a block is in allowed_keys, it's unaffected by block filters.
+
         **Block Type Filter Precedence (evaluated in order):**
 
         1. **Course-specific filters** (`course_block_filter`): If the usage key's course
@@ -572,9 +574,13 @@ class LaunchGate(models.Model):
         Returns:
             bool: True if the tool can access the usage key, False otherwise
         """
-        can_access = self._is_usage_key_allowed(usage_key)
-        is_allowed = self._is_block_type_allowed(usage_key)
-        return can_access and is_allowed
+        # If it's an explicitly allowed key, we don't need to worry about block types
+        if str(usage_key) in self.allowed_keys:
+            return True
+
+        is_usage_key_allowed = self._is_usage_key_allowed(usage_key)
+        is_block_type_allowed = self._is_block_type_allowed(usage_key)
+        return is_usage_key_allowed and is_block_type_allowed
 
     def _is_usage_key_allowed(self, usage_key: UsageKey) -> bool:
         """Return True if usage_key is allowed"""
