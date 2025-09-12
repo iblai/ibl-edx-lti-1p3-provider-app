@@ -24,12 +24,29 @@ class Content(TypedDict):
 
 def get_selectable_dl_content(launch_gate: LaunchGate) -> dict[str, list[Content]]:
     """
-    Return dict of selectable deep linking content organized by organization.
+    Return a nested Content structure of all the blocks that are servable via LTI.
 
     Returns a dict with the following structure:
     {org: [Content, ...], ...}
 
-    Where Content is a nested structure representing the course hierarchy.
+    Where the top level Content is a course. The 'children' key contains a list of all
+    the blocks that are servable via LTI in that course. For each of these entries,
+    the children are the full subtree of that block. This is so we can allow the user
+    to choose from the content in a flat list while still showing all the content that
+    would be served when selecting it.
+
+    Example (children key has been removed for brevity)
+
+    Content (course):
+      - Content (sequential):
+        - Content (vertical):
+          - Content (problem):
+          - Content (video):
+      - Content (vertical):
+        - Content (problem):
+        - Content (video):
+      - Content (problem):
+      - Content (video):
     """
     m = modulestore()
 
@@ -62,8 +79,7 @@ def get_selectable_dl_content(launch_gate: LaunchGate) -> dict[str, list[Content
     explicitly_allowed_blocks = _fetch_explicitly_allowed_blocks(
         m, launch_gate, allowed_keys
     )
-    # Add in any new content to the results
-    results = _add_content(results, explicitly_allowed_blocks)
+    results = _add_content(m, results, explicitly_allowed_blocks)
 
     return results
 
@@ -101,15 +117,15 @@ def _get_courses(m: MixedModuleStore, launch_gate: LaunchGate) -> dict[str, Cont
 
 def _fetch_explicitly_allowed_blocks(
     m: MixedModuleStore, launch_gate: LaunchGate, allowed_keys: list[str]
-) -> dict[str, list[Content]]:
+) -> list[Content]:
     """Fetch allowed keys from modulestore using bulk operations"""
-    results = defaultdict(list)
-    course_content = []
+    results = []
 
     if not allowed_keys:
-        return results
+        return []
 
     for key_str in allowed_keys:
+        course_content = []
         try:
             usage_key = UsageKey.from_string(key_str)
         except InvalidKeyError:
@@ -117,20 +133,11 @@ def _fetch_explicitly_allowed_blocks(
             continue
 
         block = m.get_item(usage_key)
-        content = build_content_from_block(block)
         # We have to construct full tree in case block has children
         child_content = _traverse_and_filter_block(
             m, block, launch_gate, course_content, allowed_keys
         )
-        if child_content:
-            content["children"] = child_content
-
-        org = usage_key.course_key.org
-        for course in results[org]:
-            if course["usage_key"] == content["usage_key"]:
-                course["children"].extend(content)
-        else:
-            results[org] = [content]
+        results.append(child_content)
 
     return results
 
@@ -208,23 +215,39 @@ def build_content_from_block(block: Any) -> Content:
 
 
 def _add_content(
+    m: MixedModuleStore,
     all_content: dict[str, list[Content]],
-    new_blocks: dict[str, list[Content]],
+    new_blocks: list[Content],
 ) -> dict[str, list[Content]]:
+    """Add new_block to all_content, creating any necessary course entries"""
     if not new_blocks:
         return all_content
 
-    for org, new_courses in new_blocks.items():
+    for block_content in new_blocks:
+        key = UsageKey.from_string(block_content["usage_key"])
+        org = key.course_key.org
         if org not in all_content:
-            all_content[org] = new_courses
-            continue
+            # Must mean the course is not either so we build the course entry
+            course = m.get_course(key.course_key)
+            new_course_content = build_content_from_block(course)
+            all_content[org] = [new_course_content]
 
-        for course in new_courses:
-            for org_course in all_content[org]:
-                if course["usage_key"] == org_course["usage_key"]:
-                    org_course["children"].extend(course["children"])
-                    break
-            else:
-                all_content[org].append(course)
+        org_courses = all_content[org]
+        course_content = None
+        for course in org_courses:
+            course_key = key.course_key
+            course_id = str(course_key.make_usage_key("course", "course"))
+            if course_id == course["usage_key"]:
+                course_content = course
+
+        # Course exists
+        if course_content:
+            course_content["children"].append(block_content)
+        # Course does not exist
+        else:
+            course = m.get_course(key.course_key)
+            course_content = build_content_from_block(course)
+            course_content["children"].append(block_content)
+            org_courses.append(course_content)
 
     return all_content
