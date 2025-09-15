@@ -453,7 +453,7 @@ class LaunchGate(models.Model):
     )
     allowed_courses = models.JSONField(
         default=list,
-        help_text="Allows tool to access these specific CourseKey's",
+        help_text="Allows tool to access any content in these specific courses",
         blank=True,
         validators=[validate_course_keys],
     )
@@ -467,9 +467,9 @@ class LaunchGate(models.Model):
     block_filter = models.JSONField(
         default=block_filter_default,
         help_text=(
-            "Allow only these block types to be launched for this Tool. "
-            "These will also be the only block types displayed when deep linking. Set "
-            "this field OR course_block_filter and/or org_block_filter to restrict access."
+            "Allow only these block types to be launched/deep linked with "
+            "for anything not specified by the course_block_filter or org_block_filter. "
+            "Must be a list of block types."
         ),
         blank=True,
         validators=[validate_block_filter],
@@ -478,7 +478,7 @@ class LaunchGate(models.Model):
         default=dict,
         help_text=(
             "Allow only these block types to be launched in these courses. "
-            "Valid formats: {course_key: [block_types], ...}. These courses will only "
+            "Valid format: {course_key: [block_types], ...}. These courses will only "
             "display these block types when deep linking."
         ),
         blank=True,
@@ -488,7 +488,7 @@ class LaunchGate(models.Model):
         default=dict,
         help_text=(
             "Allow only these block types to be launched in these orgs. "
-            "Valid formats: {org_short_name: [block_types], ...}. These orgs will only "
+            "Valid format: {org_short_name: [block_types], ...}. These orgs will only "
             "display these block types when deep linking."
         ),
         blank=True,
