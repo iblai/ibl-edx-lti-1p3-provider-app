@@ -172,16 +172,6 @@
       margin: 20px 0;
     }
     
-    .form-required-notice {
-      background: #fff3cd;
-      border: 1px solid #ffeaa7;
-      color: #856404;
-      padding: 12px;
-      border-radius: 4px;
-      margin-bottom: 20px;
-      font-size: 0.9em;
-    }
-    
     .error-display {
       background: #f8d7da;
       border: 1px solid #f5c6cb;
@@ -227,10 +217,6 @@
       
       <form method="post" action="" id="content-selection-form">
         % if selectable_content:
-          <div class="form-required-notice">
-            <strong>${_('Required:')}</strong> ${_('Please select one content item below to continue.')}
-          </div>
-          
           % for org, courses in selectable_content.items():
             <div class="organization-section">
               <h2 class="organization-title">${org}</h2>
