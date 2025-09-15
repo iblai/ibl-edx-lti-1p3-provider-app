@@ -38,11 +38,10 @@ from pylti1p3.contrib.django import (
     DjangoMessageLaunch,
     DjangoOIDCLogin,
 )
-from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool
 from pylti1p3.deep_link_resource import DeepLinkResource
 from pylti1p3.exception import LtiException, OIDCException
 
-from .dl_content_selection import get_selectable_dl_content
+from .dl_content_selection import get_selectable_dl_content, get_xblock_display_name
 from .error_formatter import reformat_error
 from .error_response import (
     MISSING_SESSION_COOKIE_ERR_MSG,
@@ -787,6 +786,9 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 error="Tool does not have access to any content. Please contact your administrator.",
                 status=403,
             )
+        client_id = self.launch_message.get_client_id()
+        issuer = self.launch_message.get_iss()
+        self.tool_info = f"issuer={issuer}, client_id={client_id}"
         return super().dispatch(request, token)
 
     def get(self, request, token: str):
@@ -797,14 +799,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
             token: Unique token for this deep linking session
         """
 
-        selectable_content = get_selectable_dl_content(self.launch_gate)
-
-        context = {
-            "title": "Select Content to Return",
-            "selectable_content": selectable_content,
-            "issuer": self.launch_message.get_iss(),
-            "client_id": self.launch_message.get_client_id(),
-        }
+        context = self._get_context()
         return render(
             self.request, "lti_1p3_provider/select_deep_link_content.html", context
         )
@@ -819,37 +814,105 @@ class DeepLinkingContentSelectionView(LtiToolView):
 
         target_xblock = request.POST.get("deep_link_content")
 
-        # TODO: Handle this error better - return template again w/ errors
         if not target_xblock:
-            raise ValueError("Missing deep_link_content key")
+            context = self._get_context(
+                error_title="No Content Selected",
+                error="Please select content to return to the platform.",
+            )
+            return render(
+                self.request,
+                "lti_1p3_provider/select_deep_link_content.html",
+                context,
+                status=400,
+            )
 
-        if not self.launch_gate.can_access_key(UsageKey.from_string(target_xblock)):
-            return render_edx_error(
-                request,
-                title="Permission Denied",
-                error=(
-                    "You do not have permission for the selected content. "
-                    "Please contact your administrator."
+        try:
+            target_xblock = UsageKey.from_string(target_xblock)
+        except InvalidKeyError:
+            log.error(
+                (
+                    "Deep Linking Error for Tool (%s): Invalid usage key when "
+                    "selecting deep linking content: %s"
                 ),
+                self.tool_info,
+                target_xblock,
+            )
+            context = self._get_context(
+                error_title="Invalid Usage Key",
+                error=(
+                    f"The selected content key is invalid. {get_contact_support_msg()}"
+                ),
+            )
+            return render(
+                self.request,
+                "lti_1p3_provider/select_deep_link_content.html",
+                context,
+                status=400,
+            )
+
+        if not self.launch_gate.can_access_key(target_xblock):
+            log.warning(
+                "Deep Linking Error for Tool (%s): Permission denied for usage key: %s",
+                self.tool_info,
+                target_xblock,
+            )
+            context = self._get_context(
+                error_title="Permission Denied",
+                error=(
+                    f"You do not have permission to access the selected content. {get_contact_support_msg()}"
+                ),
+            )
+            return render(
+                self.request,
+                "lti_1p3_provider/select_deep_link_content.html",
+                context,
                 status=403,
             )
 
         # Clear the deep linking session since content has been selected
-        clear_deep_linking_session(session=request.session, token=token)
+        try:
+            title = get_xblock_display_name(target_xblock)
+        except ValueError:
+            log.error(
+                "Deep Linking Error for Tool (%s): Xblock not found: %s",
+                self.tool_info,
+                target_xblock,
+            )
+            context = self._get_context(
+                error_title="Invalid Usage Key",
+                error=(
+                    f"The selected content key is invalid or does not exist. {get_contact_support_msg()}"
+                ),
+            )
+            return render(
+                self.request,
+                "lti_1p3_provider/select_deep_link_content.html",
+                context,
+                status=400,
+            )
 
-        target_link_uri = self._get_target_link_uri(UsageKey.from_string(target_xblock))
+        clear_deep_linking_session(session=request.session, token=token)
+        target_link_uri = self._get_target_link_uri(target_xblock)
         resource = DeepLinkResource()
         resource.set_url(target_link_uri)
-        # TODO: Find a way to return a better title - can get from the orirginal Content?
-        resource.set_title("Sample LTI Content")
-
-        # Generate the deep link response with the hardcoded content
+        resource.set_title(title)
         deep_link_response = self.launch_message.get_deep_link().output_response_form(
             [resource]
         )
 
-        # TODO: Should be returning a redirect here
+        # TODO: Should be returning a redirect here. Most LMSs close the window after
+        # this anyway, so for expediency we're returning an HTML response.
+        # it's more of a UX issue bc their session is already cleared so they can't
+        # resubmit at this point
         return HttpResponse(deep_link_response, content_type="text/html")
+
+    def _get_context(self, error_title: str = "", error: str = ""):
+        """Return context for select_deep_link_content.html"""
+        return {
+            "selectable_content": get_selectable_dl_content(self.launch_gate),
+            "error_title": error_title,
+            "error": error,
+        }
 
     def _get_target_link_uri(self, usage_key: UsageKey) -> str:
         """Generate absolute target_link_uri to xblock usage_key"""
@@ -862,11 +925,6 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 },
             )
         )
-
-    def _get_lti_tool(self, issuer: str, client_id: str) -> LtiTool:
-        """Return LtiTool from issuer and client_id"""
-        lti_tool_config = DjangoDbToolConf()
-        return lti_tool_config.get_lti_tool(iss=issuer, client_id=client_id)
 
 
 # This was taken from lms/djangoapps/lti_provider
