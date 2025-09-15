@@ -251,3 +251,12 @@ def _add_content(
             org_courses.append(course_content)
 
     return all_content
+
+
+def get_xblock_display_name(usage_key: UsageKey) -> Any:
+    """Get an xblock's display name from the modulestore"""
+    m = modulestore()
+    block = m.get_item(usage_key)
+    if not block:
+        raise ValueError(f"Block not found: {usage_key}")
+    return block.display_name
