@@ -1258,7 +1258,7 @@ def enable_cache(settings):
     }
 
 
-class DeepLinkingContentSelectionBasTest:
+class DeepLinkingContentSelectionBaseTest:
     SIMPLE_CONTENT = {
         "test-org": [
             Content(
@@ -1331,7 +1331,7 @@ class DeepLinkingContentSelectionBasTest:
 
 
 @pytest.mark.django_db
-class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBasTest):
+class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBaseTest):
     """Tests for Deep Linking Content Selection View GET"""
 
     @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
@@ -1503,7 +1503,7 @@ class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBasTest)
 
 @pytest.mark.django_db
 @pytest.mark.usefixtures("enable_cache")
-class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBasTest):
+class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTest):
     """Tests for Deep Linking Content Selection View POST"""
 
     @mock.patch("lti_1p3_provider.views.get_xblock_display_name")
