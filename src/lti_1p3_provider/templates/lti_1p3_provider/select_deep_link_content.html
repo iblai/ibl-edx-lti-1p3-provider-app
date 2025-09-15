@@ -212,7 +212,7 @@
   <section class="outside-app">
     <div class="content-selection-container">
       <div class="content-selection-header">
-        <h1>Select Content to Return</h1>
+        <h1>${_('Select Content to Return')}</h1>
         <p>${_('Choose the content you would like to link to your course')}</p>
       </div>
       
@@ -273,7 +273,7 @@
         % endif
         
         <div class="submit-section">
-          <button type="submit" class="submit-button" ${'disabled' if not selectable_content else ''}>
+          <button type="submit" class="submit-button" disabled>
             ${_('Select Content')}
           </button>
         </div>
@@ -287,6 +287,11 @@
   document.addEventListener('DOMContentLoaded', function() {
     const radioButtons = document.querySelectorAll('input[name="deep_link_content"]');
     const submitButton = document.querySelector('.submit-button');
+    
+    // Ensure submit button starts disabled when content is available
+    if (submitButton && radioButtons.length > 0) {
+      submitButton.disabled = true;
+    }
     
     radioButtons.forEach(function(radio) {
       radio.addEventListener('change', function() {
