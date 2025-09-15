@@ -565,6 +565,8 @@ class LtiToolLaunchView(LtiToolView):
                 )
                 return False
 
+        # For a deep linking launch we don't want to expose all the content within
+        # the entire platform.
         except LaunchGate.DoesNotExist:
             log.error(
                 "Tool (iss=%s, client_id=%s) has no LaunchGate; denying access",
