@@ -495,43 +495,6 @@ class LaunchGate(models.Model):
         validators=[validate_org_block_filter],
     )
 
-    def clean(self):
-        """
-        Validate LaunchGate configuration for conflicting requirements and block type restrictions.
-
-        Raises ValidationError if:
-        1. There are conflicting requirements between allowed_keys and block_filter
-        2. allowed_keys contain invalid UsageKeys
-        3. block_filter exists and usage key block types are not allowed
-        """
-        super().clean()
-        # Can only set one of block_filter OR (course_block_filter, org_block_filter
-        if self.block_filter and (self.course_block_filter or self.org_block_filter):
-            raise ValidationError(
-                "Cannot set both block_filter and course_block_filter or org_block_filter"
-            )
-
-        if not self.block_filter:
-            return
-
-        if not self.allowed_keys:
-            return
-
-        for key_str in self.allowed_keys:
-            try:
-                usage_key = UsageKey.from_string(key_str)
-            except ValueError as e:
-                raise ValidationError(
-                    f"Invalid UsageKey in allowed_keys: {key_str}"
-                ) from e
-
-            block_type = usage_key.block_type
-            if block_type not in self.block_filter:
-                raise ValidationError(
-                    f"Allowed UsageKey {usage_key} has block type '{block_type}' which is not allowed "
-                    f"by block_filter: {self.block_filter}"
-                )
-
     def can_access_key(self, usage_key: UsageKey) -> bool:
         """
         Determine if the tool can access the given usage key.
