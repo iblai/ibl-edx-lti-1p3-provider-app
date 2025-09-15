@@ -22,7 +22,7 @@ from django.test import RequestFactory, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from organizations.tests.factories import OrganizationFactory
-from pylti1p3.contrib.django import DjangoCacheDataStorage, DjangoMessageLaunch
+from pylti1p3.contrib.django import DjangoCacheDataStorage
 from pylti1p3.registration import Registration
 from pylti1p3.session import SessionService
 
@@ -30,6 +30,7 @@ from lti_1p3_provider.api.ssl_services import (
     generate_private_key_pem,
     priv_to_public_key_pem,
 )
+from lti_1p3_provider.dl_content_selection import Content
 from lti_1p3_provider.error_response import (
     MISSING_SESSION_COOKIE_ERR_MSG,
     get_contact_support_msg,
@@ -1258,6 +1259,26 @@ def enable_cache(settings):
 
 
 class DeepLinkingContentSelectionBasTest:
+    SIMPLE_CONTENT = {
+        "test-org": [
+            Content(
+                title="Test Course",
+                block_type="course",
+                usage_key="block-v1:test-org+test-course+type@course+block@course",
+                description="Test Course Description",
+                children=[
+                    Content(
+                        title="Test Item",
+                        block_type="problem",
+                        usage_key="block-v1:test-org+test-course+test-item+type@problem+block@htmlid",
+                        description="Test Problem Description",
+                        children=[],
+                    )
+                ],
+            )
+        ]
+    }
+
     def setup_method(self):
         self.tool = factories.LtiToolFactory()
         self.token = "test-token-123"
@@ -1313,19 +1334,16 @@ class DeepLinkingContentSelectionBasTest:
 class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBasTest):
     """Tests for Deep Linking Content Selection View GET"""
 
-    @pytest.mark.xfail(reason="Need to validate the response")
     @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
-    def test_get_content_selection_with_valid_session_renders_page(
+    def test_get_content_selection_with_no_content_renders_page(
         self, mock_get_content, client, enable_cache
     ):
-        """Test GET request with valid session renders content selection page"""
-        # Setup LaunchGate
+        """Test GET request with no content renders content selection page"""
         gate = factories.LaunchGateFactory(
             tool=self.tool,
             allowed_orgs=["test-org"],
             allowed_courses=["course1", "course2"],
         )
-        # TODO: Add valid content here {"org": [Content, ...]}
         mock_get_content.return_value = {}
 
         self._setup_session(client)
@@ -1336,16 +1354,42 @@ class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBasTest)
         resp = client.get(url)
 
         assert resp.status_code == 200
-        # TODO: Update to parse real response
-        assert "Select Content to Return" in resp.content.decode()
         mock_get_content.assert_called_once_with(gate)
-        assert False
+        soup = BeautifulSoup(resp.content, "html.parser")
+        no_content_div = soup.find("div", class_="no-content-message")
+        assert no_content_div.find("h3").text == "No Content Available"
 
+    @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
+    def test_get_content_selection_with_content_renders_page(
+        self, mock_get_content, client, enable_cache
+    ):
+        """Test GET request with valid session renders content selection page"""
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=["test-org"],
+            allowed_courses=["course1", "course2"],
+        )
+        mock_get_content.return_value = self.SIMPLE_CONTENT
+
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 200
+        mock_get_content.assert_called_once_with(gate)
+        soup = BeautifulSoup(resp.content, "html.parser")
+        form = soup.find("form")
+
+    @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
     def test_get_content_selection_with_invalid_token_returns_404(
-        self, client, enable_cache
+        self, mock_get_content, client, enable_cache
     ):
         """Test GET request with invalid token returns 404"""
         self._setup_session(client)
+        mock_get_content.return_value = self.SIMPLE_CONTENT
 
         invalid_token = "invalid-token-456"
         url = reverse(
@@ -1510,12 +1554,14 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBasTest
             {"deep_link_content": ""},
         ],
     )
+    @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
     def test_post_with_missing_or_empty_deep_link_content_returns_400(
-        self, client, post_data
+        self, mock_get_content, post_data, client
     ):
         """Test POST request with missing or empty deep_link_content returns 400"""
         # Setup LaunchGate
         factories.LaunchGateFactory(tool=self.tool)
+        mock_get_content.return_value = self.SIMPLE_CONTENT
 
         self._setup_session(client)
 
@@ -1529,13 +1575,15 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBasTest
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h3").text == "No Content Selected"
 
-    def test_post_with_unauthorized_content_returns_403(self, client):
+    @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
+    def test_post_with_unauthorized_content_returns_403(self, mock_get_content, client):
         """Test POST request with content not allowed by launch gate returns 403"""
         # Setup LaunchGate that doesn't allow the target content
         gate = factories.LaunchGateFactory(
             tool=self.tool,
             allowed_orgs=["different-org"],  # Different org than COURSE_KEY.org
         )
+        mock_get_content.return_value = {}
 
         self._setup_session(client)
 
@@ -1557,10 +1605,12 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBasTest
             "You do not have permission to access the selected content."
         )
 
-    def test_post_with_malformed_usage_key_returns_400(self, client):
+    @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
+    def test_post_with_malformed_usage_key_returns_400(self, mock_get_content, client):
         """Test POST request with malformed usage key returns 400"""
         # Setup LaunchGate
         factories.LaunchGateFactory(tool=self.tool)
+        mock_get_content.return_value = self.SIMPLE_CONTENT
 
         self._setup_session(client)
 
@@ -1578,8 +1628,9 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBasTest
         assert soup.find("h3").text == "Invalid Usage Key"
 
     @mock.patch("lti_1p3_provider.views.get_xblock_display_name")
+    @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
     def test_post_clears_deep_linking_session_after_success(
-        self, mock_get_display_name, client
+        self, mock_get_content, mock_get_display_name, client
     ):
         """Test that successful POST request clears the deep linking session"""
         # Setup LaunchGate
@@ -1588,6 +1639,7 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBasTest
             tool=self.tool,
             allowed_orgs=[factories.COURSE_KEY.org],
         )
+        mock_get_content.return_value = self.SIMPLE_CONTENT
 
         self._setup_session(client)
 
