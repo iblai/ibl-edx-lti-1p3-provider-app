@@ -1257,10 +1257,7 @@ def enable_cache(settings):
     }
 
 
-@pytest.mark.django_db
-class TestDeepLinkingContentSelectionView:
-    """Tests for Deep Linking Content Selection View"""
-
+class DeepLinkingContentSelectionBasTest:
     def setup_method(self):
         self.tool = factories.LtiToolFactory()
         self.token = "test-token-123"
@@ -1310,6 +1307,11 @@ class TestDeepLinkingContentSelectionView:
         session = client.session
         session[session_key] = self.dl_session_data
         session.save()
+
+
+@pytest.mark.django_db
+class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBasTest):
+    """Tests for Deep Linking Content Selection View GET"""
 
     @pytest.mark.xfail(reason="Need to validate the response")
     @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
@@ -1453,3 +1455,299 @@ class TestDeepLinkingContentSelectionView:
         assert resp.status_code == 500
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "Invalid Session"
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("enable_cache")
+class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBasTest):
+    """Tests for Deep Linking Content Selection View POST"""
+
+    @mock.patch("lti_1p3_provider.views.get_xblock_display_name")
+    def test_successful_post_with_valid_content_selection(
+        self, mock_get_display_name, client
+    ):
+        """Test successful POST request with valid content selection returns deep link response"""
+        # Setup LaunchGate with allowed content
+        mock_get_display_name.return_value = "Sample LTI Content"
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=[factories.COURSE_KEY.org],
+            allowed_courses=[str(factories.COURSE_KEY)],
+        )
+
+        self._setup_session(client)
+
+        # Valid usage key that should be allowed by the gate
+        target_usage_key = str(factories.USAGE_KEY)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, {"deep_link_content": target_usage_key})
+
+        assert resp.status_code == 200
+        assert resp["Content-Type"] == "text/html"
+
+        # Check that the response is an auto-submitted HTML form with JWT
+        soup = BeautifulSoup(resp.content, "html.parser")
+        form = soup.find("form")
+        assert form is not None, "Response should contain an HTML form"
+
+        # Check for JWT form field
+        jwt_input = form.find("input", {"name": "JWT"})
+        assert jwt_input is not None, "Form should contain JWT input field"
+        assert jwt_input.get("value") is not None, "JWT input should have a value"
+
+        # Verify that the deep linking session was cleared
+        session_key = f"{LTI_DEEP_LINKING_SESSION_PREFIX}{self.token}"
+        assert session_key not in client.session
+
+    @pytest.mark.parametrize(
+        "post_data",
+        [
+            {},
+            {"deep_link_content": ""},
+        ],
+    )
+    def test_post_with_missing_or_empty_deep_link_content_returns_400(
+        self, client, post_data
+    ):
+        """Test POST request with missing or empty deep_link_content returns 400"""
+        # Setup LaunchGate
+        factories.LaunchGateFactory(tool=self.tool)
+
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, post_data)
+
+        assert resp.status_code == 400
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h3").text == "No Content Selected"
+
+    def test_post_with_unauthorized_content_returns_403(self, client):
+        """Test POST request with content not allowed by launch gate returns 403"""
+        # Setup LaunchGate that doesn't allow the target content
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=["different-org"],  # Different org than COURSE_KEY.org
+        )
+
+        self._setup_session(client)
+
+        # Usage key that should NOT be allowed by the gate
+        target_usage_key = str(factories.USAGE_KEY)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, {"deep_link_content": target_usage_key})
+
+        assert resp.status_code == 403
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h3").text == "Permission Denied"
+        div = soup.find("div", class_="error-display")
+        div_text = div.find("p").text
+        assert div_text.startswith(
+            "You do not have permission to access the selected content."
+        )
+
+    def test_post_with_malformed_usage_key_returns_400(self, client):
+        """Test POST request with malformed usage key returns 400"""
+        # Setup LaunchGate
+        factories.LaunchGateFactory(tool=self.tool)
+
+        self._setup_session(client)
+
+        # Malformed usage key
+        malformed_usage_key = "invalid-usage-key-format"
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, {"deep_link_content": malformed_usage_key})
+
+        assert resp.status_code == 400
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h3").text == "Invalid Usage Key"
+
+    @mock.patch("lti_1p3_provider.views.get_xblock_display_name")
+    def test_post_clears_deep_linking_session_after_success(
+        self, mock_get_display_name, client
+    ):
+        """Test that successful POST request clears the deep linking session"""
+        # Setup LaunchGate
+        mock_get_display_name.return_value = "Test Title"
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=[factories.COURSE_KEY.org],
+        )
+
+        self._setup_session(client)
+
+        # Verify session exists before POST
+        session_key = f"{LTI_DEEP_LINKING_SESSION_PREFIX}{self.token}"
+        assert session_key in client.session
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, {"deep_link_content": str(factories.USAGE_KEY)})
+
+        assert resp.status_code == 200
+
+        # Verify session was cleared after successful POST
+        assert session_key not in client.session
+
+    @mock.patch("lti_1p3_provider.views.get_xblock_display_name")
+    def test_post_generates_correct_target_link_uri(
+        self, mock_get_display_name, client
+    ):
+        """Test that POST request generates correct target_link_uri in response"""
+        # Setup LaunchGate
+        mock_get_display_name.return_value = "Test Title"
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=[factories.COURSE_KEY.org],
+        )
+
+        self._setup_session(client)
+
+        target_usage_key = str(factories.USAGE_KEY)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, {"deep_link_content": target_usage_key})
+
+        assert resp.status_code == 200
+
+        # Check that the response is a valid auto-submitted HTML form
+        soup = BeautifulSoup(resp.content, "html.parser")
+        form = soup.find("form")
+        assert form is not None, "Response should contain an HTML form"
+
+        # Check for JWT form field
+        jwt_input = form.find("input", {"name": "JWT"})
+        assert jwt_input is not None, "Form should contain JWT input field"
+        assert jwt_input.get("value") is not None, "JWT input should have a value"
+
+    @mock.patch("lti_1p3_provider.views.get_xblock_display_name")
+    def test_post_with_different_usage_key_still_works(
+        self, mock_get_display_name, client
+    ):
+        """Test POST request with a different valid usage key works correctly"""
+        # Create a different course and usage key
+        mock_get_display_name.return_value = "Test Title"
+        different_course = factories.COURSE_KEY.replace(course="Course2")
+        different_usage = different_course.make_usage_key(
+            "vertical", "different-html-id"
+        )
+
+        # Setup LaunchGate that allows both courses
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=[factories.COURSE_KEY.org],
+            allowed_courses=[str(factories.COURSE_KEY), str(different_course)],
+        )
+
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, {"deep_link_content": str(different_usage)})
+
+        assert resp.status_code == 200
+        assert resp["Content-Type"] == "text/html"
+
+        # Check that the response is a valid auto-submitted HTML form
+        soup = BeautifulSoup(resp.content, "html.parser")
+        form = soup.find("form")
+        assert form is not None, "Response should contain an HTML form"
+
+        # Check for JWT form field
+        jwt_input = form.find("input", {"name": "JWT"})
+        assert jwt_input is not None, "Form should contain JWT input field"
+        assert jwt_input.get("value") is not None, "JWT input should have a value"
+
+    def test_post_with_invalid_token_returns_404(self, client):
+        """Test POST request with invalid token returns 404"""
+        # Setup LaunchGate
+        factories.LaunchGateFactory(tool=self.tool)
+
+        self._setup_session(client)
+
+        invalid_token = "invalid-token-456"
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content",
+            kwargs={"token": invalid_token},
+        )
+
+        resp = client.post(url, {"deep_link_content": str(factories.USAGE_KEY)})
+
+        assert resp.status_code == 404
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid Access Link"
+
+    def test_post_with_unauthenticated_user_returns_401(self, client):
+        """Test POST request with unauthenticated user returns 401"""
+        # Setup LaunchGate
+        factories.LaunchGateFactory(tool=self.tool)
+
+        self._setup_session(client, authenticated=False)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, {"deep_link_content": str(factories.USAGE_KEY)})
+
+        assert resp.status_code == 401
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Authentication Required"
+
+    def test_post_with_expired_session_returns_403(self, client):
+        """Test POST request with expired session returns 403"""
+        # Setup LaunchGate
+        factories.LaunchGateFactory(tool=self.tool)
+
+        # Modify session data to be expired
+        self.dl_session_data["expires_at"] = (
+            timezone.now() - timedelta(minutes=1)
+        ).timestamp()
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, {"deep_link_content": str(factories.USAGE_KEY)})
+
+        assert resp.status_code == 403
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Deep Linking Session Expired"
+
+    def test_post_with_no_launch_gate_returns_403(self, client):
+        """Test POST request when tool has no LaunchGate returns 403"""
+        # Don't create a LaunchGate for the tool
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, {"deep_link_content": str(factories.USAGE_KEY)})
+
+        assert resp.status_code == 403
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "No Accessible Content"
