@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 2.4.0
+### Added
+- [#44](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/44): Adds support for Deep Linking.`ltiResourceLink` is the only supported resource type.
+  - Adds new fields to `LaunchGate` model: `block_filter`, `course_block_filter`, `org_block_filter`
+    - These further control what content can be DeepLinked with and launched based on the block types in each filter category where `block_filter` is the final catch-all if defined.
+  - Adds new endpoints:
+    - /lti/1p3/deep-linking/launch/ - for deep link launches
+    - /lti/1p3/deep-linking/select-content/<slug:token>/ - for selecting deep link content to return
+  - Fixes `test_grades.py` to work with sumac
+
 ## 2.3.7
 ### Fixed
 - [#40](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/40): Fix session cookie error pattern matching to properly catch missing lti1p3-session-id cookie errors
