@@ -1509,11 +1509,10 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
     """Tests for Deep Linking Content Selection View POST"""
 
     @mock.patch("lti_1p3_provider.views.get_xblock_display_name")
-    def test_successful_post_with_valid_content_selection(
-        self, mock_get_display_name, client
-    ):
+    def test_successful_post_with_valid_content_selection(self, mock_get_display_name):
         """Test successful POST request with valid content selection returns deep link response"""
         # Setup LaunchGate with allowed content
+        client = Client(enforce_csrf_checks=True)
         mock_get_display_name.return_value = "Sample LTI Content"
         gate = factories.LaunchGateFactory(
             tool=self.tool,
@@ -1530,7 +1529,21 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
             "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
         )
 
-        resp = client.post(url, {"deep_link_content": target_usage_key})
+        # First GET request to get CSRF cookie
+        get_resp = client.get(url)
+        assert get_resp.status_code == 200
+
+        # Extract CSRF token from the form
+        soup = BeautifulSoup(get_resp.content, "html.parser")
+        csrf_input = soup.find("input", {"name": "csrfmiddlewaretoken"})
+        csrf_token = csrf_input.get("value") if csrf_input else None
+        assert csrf_token is not None, "CSRF token should be present in the form"
+
+        # POST request with CSRF token
+        resp = client.post(
+            url,
+            {"deep_link_content": target_usage_key, "csrfmiddlewaretoken": csrf_token},
+        )
 
         assert resp.status_code == 200
         assert resp["Content-Type"] == "text/html"
