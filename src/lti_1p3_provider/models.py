@@ -60,6 +60,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
 from django.utils.translation import gettext_lazy as _
+from opaque_keys import InvalidKeyError
 from opaque_keys.edx.django.models import CourseKeyField, UsageKeyField
 from opaque_keys.edx.keys import CourseKey, UsageKey
 from organizations.models import Organization
@@ -384,7 +385,7 @@ def validate_course_keys(course_keys: t.Any) -> None:
     for key in course_keys:
         try:
             CourseKey.from_string(key)
-        except ValueError:
+        except InvalidKeyError:
             raise ValidationError(f"Invalid CourseKey: {key}")
 
 
@@ -402,7 +403,7 @@ def validate_usage_keys(usage_keys: t.Any) -> None:
     for key in usage_keys:
         try:
             UsageKey.from_string(key)
-        except ValueError:
+        except InvalidKeyError:
             raise ValidationError(f"Invalid UsageKey: {key}")
 
 
