@@ -18,13 +18,15 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import Http404, HttpResponse
-from django.test import RequestFactory, override_settings
+from django.test import Client, RequestFactory, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from organizations.tests.factories import OrganizationFactory
 from pylti1p3.contrib.django import DjangoCacheDataStorage
 from pylti1p3.registration import Registration
 from pylti1p3.session import SessionService
+from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
+from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory
 
 from lti_1p3_provider.api.ssl_services import (
     generate_private_key_pem,
@@ -1803,3 +1805,215 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
         assert resp.status_code == 403
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "No Accessible Content"
+
+
+@pytest.mark.django_db
+class TestDeepLinkingContentSelectionWithModulestore(ModuleStoreTestCase):
+    """Tests for Deep Linking Content Selection View with real ModuleStore content"""
+
+    def setUp(self):
+        super().setUp()
+
+        # Create organization
+        self.org = OrganizationFactory(short_name="test-org")
+
+        # Create a course with various content types
+        self.course = CourseFactory.create(
+            org=self.org.short_name, display_name="Test Course for LTI"
+        )
+
+        # Create course structure: Chapter -> Sequential -> Vertical -> Problems/Videos
+        self.chapter = BlockFactory.create(
+            parent_location=self.course.location,
+            category="chapter",
+            display_name="Test Chapter",
+        )
+
+        self.sequential = BlockFactory.create(
+            parent_location=self.chapter.location,
+            category="sequential",
+            display_name="Test Sequential",
+        )
+
+        self.vertical = BlockFactory.create(
+            parent_location=self.sequential.location,
+            category="vertical",
+            display_name="Test Vertical",
+        )
+
+        # Create problems (these should be returned by block_filter)
+        self.problem1 = BlockFactory.create(
+            parent_location=self.vertical.location,
+            category="problem",
+            display_name="Test Problem 1",
+        )
+
+        self.problem2 = BlockFactory.create(
+            parent_location=self.vertical.location,
+            category="problem",
+            display_name="Test Problem 2",
+        )
+
+        # Create videos (these should NOT be returned by block_filter)
+        self.video1 = BlockFactory.create(
+            parent_location=self.vertical.location,
+            category="video",
+            display_name="Test Video 1",
+        )
+
+        # Create another vertical with more content
+        self.vertical2 = BlockFactory.create(
+            parent_location=self.sequential.location,
+            category="vertical",
+            display_name="Test Vertical 2",
+        )
+
+        self.problem3 = BlockFactory.create(
+            parent_location=self.vertical2.location,
+            category="problem",
+            display_name="Test Problem 3",
+        )
+
+        # Setup LTI tool and user
+        self.tool = factories.LtiToolFactory()
+        self.token = "test-token-123"
+        self.user = factories.UserFactory()
+        self.password = "password"
+        self.user.set_password(self.password)
+        self.user.save()
+
+        # Create LaunchGate with allowed_orgs filter and block_filter for problems only
+        self.launch_gate = factories.LaunchGateFactory(
+            tool=self.tool, allowed_orgs=[self.org.short_name], block_filter=["problem"]
+        )
+
+        # Default session data
+        self.dl_session_data = {
+            "token": self.token,
+            "launch_id": "test-launch-id",
+            "created_at": timezone.now().timestamp(),
+            "expires_at": (timezone.now() + timedelta(minutes=30)).timestamp(),
+        }
+
+    def _setup_session(self, client, authenticated=True):
+        """Setup client session with deep linking context and cache entry"""
+        if authenticated:
+            client.login(username=self.user.username, password=self.password)
+
+        # Create the ID token that will be stored in cache
+        id_token = factories.DeepLinkIdTokenFactory(
+            aud=self.tool.client_id, nonce="nonce"
+        )
+
+        # Need to establish an existing session with pylti1p3
+        # Create a mock request object for the SessionService
+        rf = RequestFactory()
+        mock_request = rf.get("/")
+        mock_request.session = client.session
+
+        # Set up the cache storage and session service
+        storage = DjangoCacheDataStorage()
+        storage.set_request(mock_request)
+        sess_service = SessionService(mock_request)
+        sess_service.set_data_storage(storage)
+
+        # Save the launch data to cache - this is what from_cache will retrieve
+        sess_service.save_launch_data(self.dl_session_data["launch_id"], id_token)
+
+        # Set up the deep linking session data
+        session_key = f"{LTI_DEEP_LINKING_SESSION_PREFIX}{self.token}"
+        session = client.session
+        session[session_key] = self.dl_session_data
+        session.save()
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "test-cache",
+            }
+        }
+    )
+    def test_get_content_selection_with_real_content_renders_correct_problems(self):
+        """Test GET request with real ModuleStore content renders only problem blocks"""
+        client = Client()
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 200
+
+        # Parse the response with BeautifulSoup
+        soup = BeautifulSoup(resp.content, "html.parser")
+
+        # Check that the page title is correct
+        assert soup.find("h1").text == "Select Content to Return"
+
+        # Check that the organization section exists
+        org_section = soup.find("h2", class_="organization-title")
+        assert org_section is not None
+        assert org_section.text == self.org.short_name
+
+        # Check that the course section exists
+        course_section = soup.find("h3", class_="course-title")
+        assert course_section is not None
+        assert course_section.text == "Test Course for LTI"
+
+        # Find all radio button inputs for content selection
+        content_inputs = soup.find_all("input", {"name": "deep_link_content"})
+
+        # Should have exactly 3 problem blocks (problem1, problem2, problem3)
+        assert len(content_inputs) == 3
+
+        # Extract the usage keys from the form inputs
+        found_usage_keys = set()
+        for input_elem in content_inputs:
+            usage_key = input_elem.get("value")
+            found_usage_keys.add(usage_key)
+
+        # Verify that we have exactly the three problems we expect
+        expected_problem_keys = {
+            str(self.problem1.location),
+            str(self.problem2.location),
+            str(self.problem3.location),
+        }
+
+        assert found_usage_keys == expected_problem_keys, (
+            f"Expected exactly {expected_problem_keys}, but found {found_usage_keys}. "
+            f"Missing: {expected_problem_keys - found_usage_keys}, "
+            f"Extra: {found_usage_keys - expected_problem_keys}"
+        )
+
+        # Check that each problem has the correct display name and block type
+        for input_elem in content_inputs:
+            # Find the parent label element
+            label = input_elem.find_parent("label")
+            assert label is not None
+
+            # Check the title
+            title_elem = label.find("div", class_="content-option-title")
+            assert title_elem is not None
+
+            # Check the block type
+            type_elem = label.find("div", class_="content-option-type")
+            assert type_elem is not None
+            assert type_elem.text == "problem"
+
+            # Verify the title matches one of our expected problems
+            title = title_elem.text
+            expected_titles = ["Test Problem 1", "Test Problem 2", "Test Problem 3"]
+            assert title in expected_titles, f"Unexpected title: {title}"
+
+        # Verify the form structure
+        form = soup.find("form", {"id": "content-selection-form"})
+        assert form is not None
+        assert form.get("method") == "post"
+
+        # Check that submit button exists and is initially disabled
+        submit_button = soup.find("button", class_="submit-button")
+        assert submit_button is not None
+        assert submit_button.get("disabled") is not None
+        assert submit_button.text.strip() == "Select Content"
