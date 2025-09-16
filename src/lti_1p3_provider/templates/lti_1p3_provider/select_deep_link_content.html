@@ -221,6 +221,7 @@
       % endif
       
       <form method="post" action="" id="content-selection-form">
+        <input type="hidden" name="csrfmiddlewaretoken" value="${ csrf_token }">
         % if selectable_content:
           % for org, courses in selectable_content.items():
             <div class="organization-section">
