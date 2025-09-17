@@ -13,11 +13,12 @@ from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login
 from django.http import (
     Http404,
+    HttpRequest,
     HttpResponse,
     HttpResponseBadRequest,
     JsonResponse,
 )
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import Resolver404, resolve, reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -37,8 +38,10 @@ from pylti1p3.contrib.django import (
     DjangoMessageLaunch,
     DjangoOIDCLogin,
 )
+from pylti1p3.deep_link_resource import DeepLinkResource
 from pylti1p3.exception import LtiException, OIDCException
 
+from .dl_content_selection import get_selectable_dl_content, get_xblock_display_name
 from .error_formatter import reformat_error
 from .error_response import (
     MISSING_SESSION_COOKIE_ERR_MSG,
@@ -46,15 +49,28 @@ from .error_response import (
     get_lti_error_response,
     render_edx_error,
 )
-from .exceptions import MissingSessionError
+from .exceptions import DeepLinkingError, MissingSessionError
 from .jwks import get_jwks_for_org
 from .models import LaunchGate, LtiGradedResource, LtiProfile
-from .session_access import has_lti_session_access, set_lti_session_access
+from .session_access import (
+    clear_deep_linking_session,
+    generate_deep_linking_token,
+    has_lti_session_access,
+    set_lti_session_access,
+    store_deep_linking_context,
+    validate_deep_linking_session,
+)
 
 log = logging.getLogger(__name__)
 User = get_user_model()
 
 LTI_1P3_EMAIL_META_KEY = "lti_1p3_email"
+DEFAULT_DEEP_LINKING_SESSION_DURATION_SEC = 1800  # 30 minutes
+DEFAULT_LTI_DEEP_LINKING_ACCEPT_ROLES = [
+    "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Instructor",
+    "http://purl.imsglobal.org/vocab/lis/v2/membership#ContentDeveloper",
+    "http://purl.imsglobal.org/vocab/lis/v2/membership#Manager",
+]
 
 
 def requires_lti_enabled(view_func):
@@ -84,7 +100,7 @@ class LtiToolView(View):
         """
         super().setup(request, *args, **kwds)
         self.lti_tool_config = DjangoDbToolConf()
-        self.lti_tool_storage = DjangoCacheDataStorage(cache_name="default")
+        self.lti_tool_storage = DjangoCacheDataStorage()
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -98,6 +114,7 @@ class LtiToolLoginView(LtiToolView):
     URL.
     """
 
+    # TODO: Remove this class var; unused
     LAUNCH_URI_PARAMETER = "target_link_uri"
 
     def get(self, request):
@@ -309,15 +326,11 @@ class LtiToolLaunchView(LtiToolView):
 
         try:
             self.launch_message = self.get_launch_message()
-            course_id, usage_id = self._get_course_and_usage_id()
-            course_key, usage_key = parse_course_and_usage_keys(course_id, usage_id)
-            log.info(
-                "LTI 1.3: issuer=%s, client_id=%s, Launch course=%s, block: id=%s",
-                self.launch_message.get_iss(),
-                self.launch_message.get_client_id(),
-                course_key,
-                usage_key,
-            )
+            log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
+
+            if self.launch_message.is_deep_link_launch():
+                return self._handle_deep_linking_launch()
+            return self._handle_basic_tool_launch()
 
         except InvalidKeyError as e:
             log.error("Invalid Launch Course or UsageKey - %s", e)
@@ -352,36 +365,6 @@ class LtiToolLaunchView(LtiToolView):
             return get_lti_error_response(
                 request, self.launch_data, errormsg=errormsg, status=500
             )
-
-        if not self._check_launch_gate(self.launch_message, usage_key):
-            log.warning(
-                "Tool (iss=%s, client_id=%s) cannot launch usage key: %s",
-                self.launch_message.get_iss(),
-                self.launch_message.get_client_id(),
-                usage_key,
-            )
-            errormsg = (
-                "You do not have permission to access this content. Please "
-                "contact your technical support for additional assistance."
-            )
-            return get_lti_error_response(
-                request,
-                self.launch_data,
-                title="LTI Launch Gate Error",
-                errormsg=errormsg,
-                status=403,
-            )
-
-        log.info("LTI 1.3: Launch message body: %s", json.dumps(self.launch_data))
-
-        edx_user = self._authenticate_and_login()
-
-        if not edx_user:
-            return self._bad_request_response()
-
-        self.handle_ags(course_key, usage_key)
-        self._set_session_access()
-        return redirect(self._get_target_link_uri())
 
     def _get_course_and_usage_id(self) -> tuple[str, str]:
         """Return course_id and usage_id from target_link_uri string"""
@@ -484,6 +467,201 @@ class LtiToolLaunchView(LtiToolView):
 
         return True
 
+    def _handle_basic_tool_launch(self):
+        """
+        Handle regular LTI resource link launch requests.
+        """
+        # Regular resource link launch - parse course and usage keys
+        course_id, usage_id = self._get_course_and_usage_id()
+        course_key, usage_key = parse_course_and_usage_keys(course_id, usage_id)
+        log.info(
+            "LTI 1.3: issuer=%s, client_id=%s, Launch course=%s, block: id=%s",
+            self.launch_message.get_iss(),
+            self.launch_message.get_client_id(),
+            course_key,
+            usage_key,
+        )
+
+        # Validate tool can access the requested usage key
+        if not self._check_launch_gate(self.launch_message, usage_key):
+            log.warning(
+                "Tool (iss=%s, client_id=%s) cannot launch usage key: %s",
+                self.launch_message.get_iss(),
+                self.launch_message.get_client_id(),
+                usage_key,
+            )
+            errormsg = (
+                "You do not have permission to access this content. Please "
+                "contact your technical support for additional assistance."
+            )
+            return get_lti_error_response(
+                self.request,
+                self.launch_data,
+                title="LTI Launch Gate Error",
+                errormsg=errormsg,
+                status=403,
+            )
+
+        # Authenticate and log in the user
+        edx_user = self._authenticate_and_login()
+        if not edx_user:
+            return self._bad_request_response()
+
+        # Handle AGS (Assignment and Grade Services) if available
+        self.handle_ags(course_key, usage_key)
+
+        # Set session access for the target resource
+        self._set_session_access()
+
+        # Redirect to the target content
+        return redirect(self._get_target_link_uri())
+
+    def _validate_deep_linking_roles(self) -> bool:
+        """
+        Validate user has appropriate roles for deep linking.
+
+        Checks LTI roles claim against configured acceptable roles for deep linking.
+
+        Returns:
+            bool: True if user has valid roles, False otherwise
+        """
+        roles_claim = "https://purl.imsglobal.org/spec/lti/claim/roles"
+        user_roles = self.launch_data.get(roles_claim, [])
+        accepted_roles = getattr(
+            settings,
+            "LTI_DEEP_LINKING_ACCEPT_ROLES",
+            DEFAULT_LTI_DEEP_LINKING_ACCEPT_ROLES,
+        )
+
+        has_valid_role = any(role in accepted_roles for role in user_roles)
+
+        if not has_valid_role:
+            log.warning(
+                "Deep linking access denied: user roles %s not in accepted roles %s",
+                user_roles,
+                accepted_roles,
+            )
+
+        return has_valid_role
+
+    def _validate_has_accessible_content(self) -> bool:
+        """Return True if tool has entries in its launch date
+
+        Returns:
+            bool: True if tool has entries in the launch gate, False otherwise
+        """
+        tool = self.lti_tool_config.get_lti_tool(
+            iss=self.launch_message.get_iss(),
+            client_id=self.launch_message.get_client_id(),
+        )
+
+        try:
+            gate = tool.launch_gate
+            if not any([gate.allowed_keys, gate.allowed_courses, gate.allowed_orgs]):
+                log.error(
+                    "Tool (iss=%s, client_id=%s) has empty LaunchGate; denying access",
+                    tool.issuer,
+                    tool.client_id,
+                )
+                return False
+
+        # For a deep linking launch we don't want to expose all the content within
+        # the entire platform.
+        except LaunchGate.DoesNotExist:
+            log.error(
+                "Tool (iss=%s, client_id=%s) has no LaunchGate; denying access",
+                tool.issuer,
+                tool.client_id,
+            )
+            return False
+
+        return True
+
+    def _store_deep_linking_context(self) -> str:
+        """
+        Store deep linking context in the user's session with a unique token.
+
+        This context includes tool information, launch data, and expiration time
+        to control access to the content selection page.
+
+        Returns:
+            str: The unique token for this deep linking session
+        """
+        token = generate_deep_linking_token()
+
+        session_duration_sec = getattr(
+            settings,
+            "LTI_DEEP_LINKING_SESSION_DURATION_SEC",
+            DEFAULT_DEEP_LINKING_SESSION_DURATION_SEC,
+        )
+
+        stored_data = store_deep_linking_context(
+            session=self.request.session,
+            token=token,
+            launch_id=self.launch_message.get_launch_id(),
+            session_duration_sec=session_duration_sec,
+        )
+
+        log.info(
+            "Stored deep linking context for Tool (issuer=%s, client_id=%s, launch_id=%s) with "
+            "token %s (expires at %s)",
+            self.launch_message.get_iss(),
+            self.launch_message.get_client_id(),
+            self.launch_message.get_launch_id(),
+            token[:8] + "...",
+            stored_data["expires_at"],
+        )
+
+        return token
+
+    def _handle_deep_linking_launch(self):
+        """Handle LTI Deep Linking launch requests."""
+        iss = self.launch_message.get_iss()
+        client_id = self.launch_message.get_client_id()
+        log.info(
+            "LTI 1.3: Deep linking launch for Tool (issuer=%s, client_id=%s)",
+            iss,
+            client_id,
+        )
+
+        if not self._validate_deep_linking_roles():
+            # TODO: Add accepted roles to error message
+            return get_lti_error_response(
+                self.request,
+                self.launch_data,
+                title="Insufficient Permissions",
+                errormsg="You do not have the required role to access deep linking. Contact your administrator.",
+                status=403,
+            )
+
+        if not self._validate_has_accessible_content():
+            log.warning(
+                "Tool (issuer=%s, client_id=%s) has no accessible content in its launch gate",
+                iss,
+                client_id,
+            )
+            return get_lti_error_response(
+                self.request,
+                self.launch_data,
+                title="No Accessible Content",
+                errormsg="Tool does not have access to any content. Please contact your administrator.",
+                status=403,
+            )
+
+        edx_user = self._authenticate_and_login()
+        if not edx_user:
+            return self._bad_request_response()
+
+        # Store context and get unique token
+        token = self._store_deep_linking_context()
+
+        # Redirect to content selection with token
+        return redirect(
+            reverse(
+                "lti_1p3_provider:deep-linking-select-content", kwargs={"token": token}
+            )
+        )
+
 
 class DisplayTargetResource(LtiToolView):
     """Displays content to user if they have appropriate permissions"""
@@ -564,6 +742,191 @@ class LtiOrgToolJwksView(LtiToolView):
         """
 
         return JsonResponse(get_jwks_for_org(org_short_name), safe=False)
+
+
+@method_decorator(requires_lti_enabled, name="dispatch")
+class DeepLinkingContentSelectionView(LtiToolView):
+    """
+    Content selection view for LTI Deep Linking.
+
+    Allows users to select content to return to the platform after
+    a deep linking launch. Access is controlled by session-based validation.
+    """
+
+    def dispatch(self, request: HttpRequest, token: str) -> HttpResponse:
+        try:
+            deep_link_context = validate_deep_linking_session(
+                session=request.session,
+                token=token,
+                user_authenticated=request.user.is_authenticated,
+            )
+        except DeepLinkingError as e:
+            return render_edx_error(request, e.title, e.message, status=e.status_code)
+
+        self.launch_message = DjangoMessageLaunch.from_cache(
+            deep_link_context["launch_id"],
+            request,
+            self.lti_tool_config,
+            launch_data_storage=self.lti_tool_storage,
+        )
+
+        tool = self.lti_tool_config.get_lti_tool(
+            self.launch_message.get_iss(), self.launch_message.get_client_id()
+        )
+
+        try:
+            self.launch_gate = tool.launch_gate
+        except LaunchGate.DoesNotExist:
+            log.error(
+                "Tool (iss=%s, client_id=%s) has no LaunchGate; denying access",
+                tool.issuer,
+                tool.client_id,
+            )
+            return render_edx_error(
+                request,
+                title="No Accessible Content",
+                error="Tool does not have access to any content. Please contact your administrator.",
+                status=403,
+            )
+        client_id = self.launch_message.get_client_id()
+        issuer = self.launch_message.get_iss()
+        self.tool_info = f"issuer={issuer}, client_id={client_id}"
+        return super().dispatch(request, token)
+
+    def get(self, request, token: str):
+        """
+        Display content selection interface for deep linking.
+
+        Args:
+            token: Unique token for this deep linking session
+        """
+
+        context = self._get_context()
+        return render(
+            self.request, "lti_1p3_provider/select_deep_link_content.html", context
+        )
+
+    def post(self, request, token: str):
+        """
+        Process content selection and return deep linking response.
+
+        Args:
+            token: Unique token for this deep linking session
+        """
+
+        target_xblock = request.POST.get("deep_link_content")
+
+        if not target_xblock:
+            context = self._get_context(
+                error_title="No Content Selected",
+                error="Please select content to return to the platform.",
+            )
+            return render(
+                self.request,
+                "lti_1p3_provider/select_deep_link_content.html",
+                context,
+                status=400,
+            )
+
+        try:
+            target_xblock = UsageKey.from_string(target_xblock)
+        except InvalidKeyError:
+            log.error(
+                (
+                    "Deep Linking Error for Tool (%s): Invalid usage key when "
+                    "selecting deep linking content: %s"
+                ),
+                self.tool_info,
+                target_xblock,
+            )
+            context = self._get_context(
+                error_title="Invalid Usage Key",
+                error=(
+                    f"The selected content key is invalid. {get_contact_support_msg()}"
+                ),
+            )
+            return render(
+                self.request,
+                "lti_1p3_provider/select_deep_link_content.html",
+                context,
+                status=400,
+            )
+
+        if not self.launch_gate.can_access_key(target_xblock):
+            log.warning(
+                "Deep Linking Error for Tool (%s): Permission denied for usage key: %s",
+                self.tool_info,
+                target_xblock,
+            )
+            context = self._get_context(
+                error_title="Permission Denied",
+                error=(
+                    f"You do not have permission to access the selected content. {get_contact_support_msg()}"
+                ),
+            )
+            return render(
+                self.request,
+                "lti_1p3_provider/select_deep_link_content.html",
+                context,
+                status=403,
+            )
+
+        # Clear the deep linking session since content has been selected
+        try:
+            title = get_xblock_display_name(target_xblock)
+        except ValueError:
+            log.error(
+                "Deep Linking Error for Tool (%s): Xblock not found: %s",
+                self.tool_info,
+                target_xblock,
+            )
+            context = self._get_context(
+                error_title="Invalid Usage Key",
+                error=(
+                    f"The selected content key is invalid or does not exist. {get_contact_support_msg()}"
+                ),
+            )
+            return render(
+                self.request,
+                "lti_1p3_provider/select_deep_link_content.html",
+                context,
+                status=400,
+            )
+
+        clear_deep_linking_session(session=request.session, token=token)
+        target_link_uri = self._get_target_link_uri(target_xblock)
+        resource = DeepLinkResource()
+        resource.set_url(target_link_uri)
+        resource.set_title(title)
+        deep_link_response = self.launch_message.get_deep_link().output_response_form(
+            [resource]
+        )
+
+        # TODO: Should be returning a redirect here. Most LMSs close the window after
+        # this anyway, so for expediency we're returning an HTML response.
+        # it's more of a UX issue bc their session is already cleared so they can't
+        # resubmit at this point
+        return HttpResponse(deep_link_response, content_type="text/html")
+
+    def _get_context(self, error_title: str = "", error: str = ""):
+        """Return context for select_deep_link_content.html"""
+        return {
+            "selectable_content": get_selectable_dl_content(self.launch_gate),
+            "error_title": error_title,
+            "error": error,
+        }
+
+    def _get_target_link_uri(self, usage_key: UsageKey) -> str:
+        """Generate absolute target_link_uri to xblock usage_key"""
+        return self.request.build_absolute_uri(
+            reverse(
+                "lti_1p3_provider:lti-display",
+                kwargs={
+                    "course_id": str(usage_key.course_key),
+                    "usage_id": str(usage_key),
+                },
+            )
+        )
 
 
 # This was taken from lms/djangoapps/lti_provider

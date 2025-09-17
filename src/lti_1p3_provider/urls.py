@@ -11,6 +11,16 @@ from .api.urls import router as api_router
 urlpatterns = [
     path("login/", views.LtiToolLoginView.as_view(), name="lti-login"),
     path("launch/", views.LtiToolLaunchView.as_view(), name="lti-launch"),
+    path(
+        "deep-linking/launch/",
+        views.LtiToolLaunchView.as_view(),
+        name="deep-link-launch",
+    ),
+    path(
+        "deep-linking/select-content/<slug:token>/",
+        views.DeepLinkingContentSelectionView.as_view(),
+        name="deep-linking-select-content",
+    ),
     re_path(
         f"launch/{settings.COURSE_ID_PATTERN}/{settings.USAGE_ID_PATTERN}$",
         views.DisplayTargetResource.as_view(),

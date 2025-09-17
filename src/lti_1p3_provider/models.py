@@ -53,12 +53,16 @@ from __future__ import annotations
 import logging
 import random
 import string
+import typing as t
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
 from django.utils.translation import gettext_lazy as _
+from opaque_keys import InvalidKeyError
 from opaque_keys.edx.django.models import CourseKeyField, UsageKeyField
-from opaque_keys.edx.keys import UsageKey
+from opaque_keys.edx.keys import CourseKey, UsageKey
 from organizations.models import Organization
 from pylti1p3.contrib.django import DjangoDbToolConf, DjangoMessageLaunch
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
@@ -373,6 +377,66 @@ def generate_random_edx_username():
     return username
 
 
+def validate_course_keys(course_keys: t.Any) -> None:
+    """Validate a list of CourseKey strings"""
+    if not isinstance(course_keys, list):
+        raise ValidationError("Course keys must be a list")
+
+    for key in course_keys:
+        try:
+            CourseKey.from_string(key)
+        except InvalidKeyError:
+            raise ValidationError(f"Invalid CourseKey: {key}")
+
+
+def validate_allowed_orgs(orgs: t.Any) -> None:
+    """Validate a list of Org strings"""
+    if not isinstance(orgs, list):
+        raise ValidationError("allowed_orgs must be a list")
+
+
+def validate_usage_keys(usage_keys: t.Any) -> None:
+    """Validate a list of UsageKey strings"""
+    if not isinstance(usage_keys, list):
+        raise ValidationError("Usage keys must be a list")
+
+    for key in usage_keys:
+        try:
+            UsageKey.from_string(key)
+        except InvalidKeyError:
+            raise ValidationError(f"Invalid UsageKey: {key}")
+
+
+def validate_course_block_filter(course_block_filter: t.Any) -> None:
+    """Validate a course block filter"""
+    if not isinstance(course_block_filter, dict):
+        raise ValidationError(
+            "Course block filter must be a dictionary of course keys and lists of edx block types"
+        )
+    validate_course_keys(list(course_block_filter.keys()))
+
+
+def validate_org_block_filter(org_block_filter: t.Any) -> None:
+    """Validate an org block filter"""
+    if not isinstance(org_block_filter, dict):
+        raise ValidationError(
+            "Org block filter must be a dictionary of org short names and lists of edx block types"
+        )
+
+
+def validate_block_filter(block_filter: t.Any) -> None:
+    """Validate a deep linking block filter"""
+    if not isinstance(block_filter, list):
+        raise ValidationError("Block filter must be a list of edx block types")
+
+
+def block_filter_default() -> dict:
+    """
+    Default block filter.
+    """
+    return getattr(settings, "LTI_BLOCK_FILTER_DEFAULT", [])
+
+
 class LaunchGate(models.Model):
     """Stores information about which xblocks a tool can access"""
 
@@ -386,23 +450,104 @@ class LaunchGate(models.Model):
         default=list,
         help_text="Allows tool to access these specific UsageKeys",
         blank=True,
+        validators=[validate_usage_keys],
     )
     allowed_courses = models.JSONField(
         default=list,
-        help_text="Allows tool to access these specific CourseKey's",
+        help_text="Allows tool to access any content in these specific courses",
         blank=True,
+        validators=[validate_course_keys],
     )
     allowed_orgs = models.JSONField(
         default=list,
         help_text="Allows tools to access any content in these orgs",
         blank=True,
+        validators=[validate_allowed_orgs],
+    )
+    # Filters
+    block_filter = models.JSONField(
+        default=block_filter_default,
+        help_text=(
+            "Allow only these block types to be launched/deep linked with "
+            "for anything not specified by the course_block_filter or org_block_filter. "
+            "Must be a list of block types."
+        ),
+        blank=True,
+        validators=[validate_block_filter],
+    )
+    course_block_filter = models.JSONField(
+        default=dict,
+        help_text=(
+            "Allow only these block types to be launched in these courses. "
+            "Valid format: {course_key: [block_types], ...}. These courses will only "
+            "display these block types when deep linking."
+        ),
+        blank=True,
+        validators=[validate_course_block_filter],
+    )
+    org_block_filter = models.JSONField(
+        default=dict,
+        help_text=(
+            "Allow only these block types to be launched in these orgs. "
+            "Valid format: {org_short_name: [block_types], ...}. These orgs will only "
+            "display these block types when deep linking."
+        ),
+        blank=True,
+        validators=[validate_org_block_filter],
     )
 
     def can_access_key(self, usage_key: UsageKey) -> bool:
-        """Return True if tool can access usage_key
-
-        This is evaluated as an OR of allowed_keys, allowed_courses, allowed_orgs
         """
+        Determine if the tool can access the given usage key.
+
+        This method performs a two-stage evaluation:
+        1. **Access Control Check**: Verifies if the usage key is allowed based on
+           allowed_keys, allowed_courses, or allowed_orgs (OR logic - any match grants access)
+        2. **Block Type Filter Check**: Verifies if the usage key's block type is allowed
+           based on block type filters (with specific precedence rules)
+
+        If a block is in allowed_keys, it's unaffected by block filters.
+
+        **Block Type Filter Precedence (evaluated in order):**
+
+        1. **Course-specific filters** (`course_block_filter`): If the usage key's course
+           has specific block type restrictions, only those block types are allowed.
+           This takes highest precedence.
+
+        2. **Organization-specific filters** (`org_block_filter`): If the usage key's
+           organization has specific block type restrictions and no course-specific
+           filter applies, only those block types are allowed.
+
+        3. **Global filters** (`block_filter`): If no course or org-specific filters
+           apply, the global block type filter is enforced.
+
+        4. **No filters**: If no block type filters are configured, all block types
+           are allowed (assuming access control passes).
+
+        **Examples:**
+        - If course_block_filter allows ['html', 'video'] for a course, only those
+          block types are allowed for that course, regardless of org or global filters
+        - If org_block_filter allows ['problem'] for an org and no course-specific
+          filter exists, only 'problem' blocks are allowed for that org
+        - If only block_filter is set to ['vertical'], only 'vertical' blocks are
+          allowed globally (unless overridden by course/org filters)
+
+        Args:
+            usage_key: The UsageKey to check access for
+
+        Returns:
+            bool: True if the tool can access the usage key, False otherwise
+        """
+        # If it's an explicitly allowed key, we don't need to worry about block types
+        if str(usage_key) in self.allowed_keys:
+            return True
+
+        is_usage_key_allowed = self._is_usage_key_allowed(usage_key)
+        is_block_type_allowed = self._is_block_type_allowed(usage_key)
+        return is_usage_key_allowed and is_block_type_allowed
+
+    def _is_usage_key_allowed(self, usage_key: UsageKey) -> bool:
+        """Return True if usage_key is allowed"""
         allowed_keys, allowed_courses, allowed_orgs = False, False, False
         if self.allowed_keys:
             allowed_keys = str(usage_key) in self.allowed_keys
@@ -414,6 +559,38 @@ class LaunchGate(models.Model):
             allowed_orgs = usage_key.course_key.org in self.allowed_orgs
 
         return allowed_keys or allowed_courses or allowed_orgs
+
+    def _is_block_type_allowed(self, usage_key: UsageKey) -> bool:
+        """Return True if usage key's block_type is allowed"""
+        # If no filters are set, nothing is filtered out
+        if not any(
+            [
+                bool(self.block_filter),
+                bool(self.course_block_filter),
+                bool(self.org_block_filter),
+            ]
+        ):
+            return True
+
+        block_type = usage_key.block_type
+        course_key_str = str(usage_key.course_key)
+
+        # if the block type is in courses block filter, we're not filtered out
+        course_block_filter = self.course_block_filter.get(course_key_str, [])
+        if course_block_filter:
+            return False if block_type not in course_block_filter else True
+
+        # if the block type is in orgs block filter, we're not filtered out
+        org = usage_key.course_key.org
+        org_block_filter = self.org_block_filter.get(org, [])
+        if org_block_filter:
+            return False if block_type not in org_block_filter else True
+
+        # if we're in the global block filter, we're not filtered out
+        if self.block_filter and block_type not in self.block_filter:
+            return False
+
+        return True
 
 
 class LtiToolOrg(models.Model):

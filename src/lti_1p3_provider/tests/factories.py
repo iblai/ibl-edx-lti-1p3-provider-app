@@ -217,8 +217,8 @@ class LtiAgsFactory(factory.DictFactory):
         return scopes
 
 
-class IdTokenFactory(factory.DictFactory):
-    """An LTI Launch request"""
+class BaseIdTokenFactory(factory.DictFactory):
+    """Minimum required claims for an LTI ID token"""
 
     # Aud is tool's client_id
     aud: str
@@ -231,8 +231,6 @@ class IdTokenFactory(factory.DictFactory):
 
     # LTI Params
     deployment_id = "1"
-    target_link_uri: str
-    resource_link = factory.SubFactory(ResourceLinkFactory)
     roles = factory.LazyAttribute(
         lambda self: ["http://purl.imsglobal.org/vocab/lis/v2/membership#Learner"]
     )
@@ -242,18 +240,9 @@ class IdTokenFactory(factory.DictFactory):
     @classmethod
     def _create(cls, model_class, *args, **kwargs):
         obj = super()._create(model_class, *args, **kwargs)
-        obj["https://purl.imsglobal.org/spec/lti/claim/message_type"] = (
-            "LtiResourceLinkRequest"
-        )
         obj["https://purl.imsglobal.org/spec/lti/claim/version"] = "1.3.0"
         obj["https://purl.imsglobal.org/spec/lti/claim/deployment_id"] = obj.pop(
             "deployment_id"
-        )
-        obj["https://purl.imsglobal.org/spec/lti/claim/target_link_uri"] = obj.pop(
-            "target_link_uri"
-        )
-        obj["https://purl.imsglobal.org/spec/lti/claim/resource_link"] = obj.pop(
-            "resource_link"
         )
         obj["https://purl.imsglobal.org/spec/lti/claim/roles"] = obj.pop("roles")
 
@@ -271,6 +260,57 @@ class IdTokenFactory(factory.DictFactory):
             }
         else:
             obj.pop("return_url")
+
+        return obj
+
+
+class IdTokenFactory(BaseIdTokenFactory):
+    """Additional claims required for a basic LTI launch"""
+
+    target_link_uri: str = ""
+    resource_link = factory.SubFactory(ResourceLinkFactory)
+
+    @classmethod
+    def _create(cls, model_class, *args, **kwargs):
+        obj = super()._create(model_class, *args, **kwargs)
+        obj["https://purl.imsglobal.org/spec/lti/claim/message_type"] = (
+            "LtiResourceLinkRequest"
+        )
+        obj["https://purl.imsglobal.org/spec/lti/claim/target_link_uri"] = obj.pop(
+            "target_link_uri"
+        )
+        obj["https://purl.imsglobal.org/spec/lti/claim/resource_link"] = obj.pop(
+            "resource_link"
+        )
+        return obj
+
+
+class DeepLinkIdTokenFactory(BaseIdTokenFactory):
+    """Additional claims required for a deep linking LTI launch"""
+
+    roles = factory.LazyAttribute(
+        lambda o: [
+            "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Instructor"
+        ]
+    )
+
+    @classmethod
+    def _create(cls, model_class, *args, **kwargs):
+        obj = super()._create(model_class, *args, **kwargs)
+
+        # Override message_type for deep linking
+        obj["https://purl.imsglobal.org/spec/lti/claim/message_type"] = (
+            "LtiDeepLinkingRequest"
+        )
+
+        # Add required deep linking settings
+        obj["https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"] = {
+            "deep_link_return_url": "https://platform-server.local/deep_link_return",
+            "accept_types": ["link", "file", "html", "ltiResourceLink", "image"],
+            "accept_presentation_document_targets": ["iframe", "window"],
+            "accept_media_types": "image/*,text/html",
+            "auto_create": False,
+        }
 
         return obj
 

@@ -15,6 +15,32 @@ class LaunchGateAdmin(admin.ModelAdmin):
         "allowed_orgs",
     )
 
+    fieldsets = (
+        (
+            "Accessible Content",
+            {
+                "fields": ("tool", "allowed_keys", "allowed_courses", "allowed_orgs"),
+                "description": (
+                    "A Tool will be allowed to launch/deep link with any key in "
+                    "allowed_keys, all keys under allowed_courses, and all keys under "
+                    "allowed_orgs."
+                ),
+            },
+        ),
+        (
+            "Block Type Filters",
+            {
+                "fields": ("block_filter", "course_block_filter", "org_block_filter"),
+                "description": (
+                    "Further restricts the content that is accessible by this "
+                    "Tool to specific block types either globally (block_filter), "
+                    "within specific courses (course_block_filter), or within specific "
+                    "orgs (org block filter). allowed_keys are unaffected by these filters."
+                ),
+            },
+        ),
+    )
+
     def has_allowed_keys(self, obj) -> bool:
         return bool(obj.allowed_keys)
 
