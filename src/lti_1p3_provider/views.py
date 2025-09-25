@@ -402,7 +402,7 @@ class LtiToolLaunchView(LtiToolView):
                 path,
                 match.url_name,
             )
-            err_msg = f"Invalid target_link_uri: {target_link_uri}."
+            err_msg = f"Invalid target_link_uri: {target_link_uri}"
             err_details = self._get_invalid_target_link_uri_error(match)
             if err_details:
                 err_msg = f"{err_msg}. {err_details}"
