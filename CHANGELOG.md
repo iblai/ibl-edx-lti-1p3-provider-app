@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.4.1
+### Changed
+- [#45](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/45): Further validate the `target_link_uri` to ensure:
+  - It's domain is our domain (so we don't send the user outside our platform)
+  - It's specifically out `lti-display` endpoint - that's the only place we can go
+  - Return a more specific error if someone sets it to our deep-linking/lti-launch endpoints (common mistakes)
+
 ## 2.4.0
 ### Added
 - [#44](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/44): Adds support for Deep Linking.`ltiResourceLink` is the only supported resource type.

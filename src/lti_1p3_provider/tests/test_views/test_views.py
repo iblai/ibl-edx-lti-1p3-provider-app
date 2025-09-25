@@ -43,6 +43,13 @@ from lti_1p3_provider.views import (
 )
 
 
+@pytest.fixture(autouse=True)
+def override_lms_base():
+    """Override LMS_BASE for the duration of the test"""
+    with override_settings(LMS_BASE="localhost"):
+        yield
+
+
 def _get_session_middleware():
     """Get Initialized SessionMiddleware"""
     return SessionMiddleware(lambda r: None)
@@ -754,9 +761,7 @@ class TestLtiBasicLaunch:
         """Error returned via return_url w/ errormsg (when specified)"""
         base = reverse("lti_1p3_provider:lti-launch")
         # Invalid usage key so it will return an error w/ errormsg
-        target_link_uri = (
-            f"{base}{str(factories.COURSE_KEY)}/block-v1:org1+course1+run1"
-        )
+        target_link_uri = f"https://localhost{base}{str(factories.COURSE_KEY)}/block-v1:org1+course1+run1"
         return_url = "https://endpoint.com/return_url?item=123"
         payload = self._get_payload(
             "", "", target_link_uri=target_link_uri, return_url=return_url
@@ -849,6 +854,69 @@ class TestLtiBasicLaunch:
             request.session[LTI_SESSION_KEY][target_link_path_1]
             == link_1_exp.isoformat()
         )
+
+    def test_target_link_uri_does_not_match_lms_domain_returns_400(self, client):
+        """If target_link_uri domain doesn't match LMS_BASE, 400 is returned"""
+        # Create a target_link_uri with a different domain
+        target_link_uri = _get_target_link_uri(
+            str(factories.COURSE_KEY),
+            str(factories.USAGE_KEY),
+            domain="https://different-domain.com",
+        )
+        payload = self._get_payload(
+            factories.COURSE_KEY, factories.USAGE_KEY, target_link_uri=target_link_uri
+        )
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
+        assert soup.find("p").text.startswith(
+            f"Invalid target_link_uri domain: {target_link_uri}"
+        )
+        assert resp.status_code == 400
+
+    @override_settings(LMS_BASE="lms.local")
+    @pytest.mark.parametrize(
+        "endpoint_name,expected_error",
+        [
+            (
+                "deep-link-launch",
+                (
+                    "Deep Linking Launch endpoint is not a valid target_link_uri for "
+                    "ltiResourceLinkRequest launch types."
+                ),
+            ),
+            (
+                "lti-launch",
+                (
+                    "LTI Launch endpoint is not a valid target_link_uri for ltiResourceLinkRequest "
+                    "launch types."
+                ),
+            ),
+            (
+                "lti-login",
+                "Invalid target_link_uri: ",
+            ),
+        ],
+    )
+    def test_target_link_uri_does_not_match_lti_display_endpoint_returns_400(
+        self, client, endpoint_name, expected_error
+    ):
+        """If target_link_uri points to wrong endpoint, 400 is returned with specific error"""
+        # Create target_link_uri pointing to the wrong endpoint
+        wrong_endpoint = reverse(f"lti_1p3_provider:{endpoint_name}")
+        target_link_uri = f"http://lms.local{wrong_endpoint}"
+        payload = self._get_payload(
+            factories.COURSE_KEY, factories.USAGE_KEY, target_link_uri=target_link_uri
+        )
+
+        resp = client.post(self.launch_endpoint, payload)
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("h1").text == "Invalid LTI Tool Launch"
+        assert expected_error in soup.find("p").text
+        assert resp.status_code == 400
 
 
 @pytest.mark.django_db
@@ -1090,4 +1158,3 @@ class TestDisplayTargetResourceView:
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "Unauthorized"
         assert resp.status_code == 401
-

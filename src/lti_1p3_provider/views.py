@@ -19,7 +19,7 @@ from django.http import (
     JsonResponse,
 )
 from django.shortcuts import redirect, render
-from django.urls import Resolver404, resolve, reverse
+from django.urls import Resolver404, ResolverMatch, resolve, reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -366,24 +366,69 @@ class LtiToolLaunchView(LtiToolView):
                 request, self.launch_data, errormsg=errormsg, status=500
             )
 
-    def _get_course_and_usage_id(self) -> tuple[str, str]:
+    def _get_course_and_usage_id(self, match: ResolverMatch) -> tuple[str, str]:
         """Return course_id and usage_id from target_link_uri string"""
+        return match.kwargs["course_id"], match.kwargs["usage_id"]
+
+    def _validate_target_link_uri(self) -> ResolverMatch:
+        """Validate the target_link_uri and return ResolverMatch if matches lti-display endpoint
+
+        Raises LtiException error on failures
+        """
         target_link_uri = self._get_target_link_uri()
-        path = parse.urlparse(target_link_uri)[2]
+        parts = parse.urlparse(target_link_uri)
+
+        # Ensure target_link_uri is on our platform
+        if parts.netloc != settings.LMS_BASE:
+            log.warning(
+                "Invalid target_link_uri_domain: %s. Must match LMS_BASE",
+                target_link_uri,
+            )
+            raise LtiException(f"Invalid target_link_uri domain: {target_link_uri}")
+
+        # ensure the target_link_uri is the lti-display endpoint; it's the only one we accept
+        path = parts.path
+        log.debug("Target link uri: %s", path)
         try:
-            log.debug("Target link uri: %s", path)
-            match = resolve(path)
+            match = resolve(str(path))
         except Resolver404:
-            log.error("target link uri: %s is invalid", path)
+            log.warning("No resolve match for target link uri: %s", path)
             raise LtiException("Invalid target_link_uri path: %s", path)
 
-        return match.kwargs["course_id"], match.kwargs["usage_id"]
+        if match.url_name != "lti-display":
+            log.warning(
+                "target link uri does not point to lti-display endpoint: uri=%s,"
+                "match.url_name=%s",
+                path,
+                match.url_name,
+            )
+            err_msg = f"Invalid target_link_uri: {target_link_uri}."
+            err_details = self._get_invalid_target_link_uri_error(match)
+            if err_details:
+                err_msg = f"{err_msg} {err_details}"
+            raise LtiException(err_msg)
+
+        return match
 
     def _get_target_link_uri(self) -> str | None:
         """Return target link URI from payload"""
         return self.launch_data.get(
             "https://purl.imsglobal.org/spec/lti/claim/target_link_uri"
         )
+
+    def _get_invalid_target_link_uri_error(self, match: ResolverMatch) -> str:
+        """Return a more descriptive error about the endpoint if possible"""
+        if match.url_name == "deep-link-launch":
+            return (
+                "Deep Linking Launch endpoint is not a valid target_link_uri "
+                "for ltiResourceLinkRequest launch types."
+            )
+        if match.url_name == "lti-launch":
+            return (
+                "LTI Launch endpoint is not a valid target_link_uri for ltiResourceLinkRequest "
+                "launch types."
+            )
+        return ""
 
     def handle_ags(self, course_key: CourseKey, usage_key: UsageKey) -> None:
         """
@@ -472,8 +517,10 @@ class LtiToolLaunchView(LtiToolView):
         Handle regular LTI resource link launch requests.
         """
         # Regular resource link launch - parse course and usage keys
-        course_id, usage_id = self._get_course_and_usage_id()
-        course_key, usage_key = parse_course_and_usage_keys(course_id, usage_id)
+        match = self._validate_target_link_uri()
+        course_key, usage_key = parse_course_and_usage_keys(
+            match.kwargs["course_id"], match.kwargs["usage_id"]
+        )
         log.info(
             "LTI 1.3: issuer=%s, client_id=%s, Launch course=%s, block: id=%s",
             self.launch_message.get_iss(),
