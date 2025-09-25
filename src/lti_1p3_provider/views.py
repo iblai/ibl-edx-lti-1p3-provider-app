@@ -419,10 +419,14 @@ class LtiToolLaunchView(LtiToolView):
     def _get_invalid_target_link_uri_error(self, match: ResolverMatch) -> str:
         """Return a more descriptive error about the endpoint if possible"""
         if match.url_name == "deep-link-launch":
-            return "Deep Linking Launch endpoint is not a valid target_link_uri for basic launches."
+            return (
+                "Deep Linking Launch endpoint is not a valid target_link_uri "
+                "for ltiResourceLinkRequest launch types."
+            )
         if match.url_name == "lti-launch":
             return (
-                "LTI Launch endpoint is not a valid target_link_uri for basic launches."
+                "LTI Launch endpoint is not a valid target_link_uri for ltiResourceLinkRequest "
+                "launch types."
             )
         return ""
 

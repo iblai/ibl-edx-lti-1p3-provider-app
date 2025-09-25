@@ -882,11 +882,17 @@ class TestLtiBasicLaunch:
         [
             (
                 "deep-link-launch",
-                "Deep Linking Launch endpoint is not a valid target_link_uri for basic launches.",
+                (
+                    "Deep Linking Launch endpoint is not a valid target_link_uri for "
+                    "ltiResourceLinkRequest launch types."
+                ),
             ),
             (
                 "lti-launch",
-                "LTI Launch endpoint is not a valid target_link_uri for basic launches.",
+                (
+                    "LTI Launch endpoint is not a valid target_link_uri for ltiResourceLinkRequest "
+                    "launch types."
+                ),
             ),
             (
                 "lti-login",
