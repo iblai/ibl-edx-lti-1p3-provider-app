@@ -54,6 +54,7 @@ import logging
 import random
 import string
 import typing as t
+from importlib import import_module
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -73,6 +74,33 @@ EDX_LTI_EMAIL_DOMAIN = "edx-lti-1p3.com"
 log = logging.getLogger(__name__)
 
 User = get_user_model()
+
+
+def import_from_string(dotted_path: str) -> t.Callable:
+    """
+    Import an object (class, function, variable, etc.) from a dotted path string.
+    Example: 'package.module.ClassName'
+    """
+    try:
+        module_path, object_name = dotted_path.rsplit(".", 1)
+    except ValueError:
+        log.warning("Invalid module path: %s", dotted_path)
+        raise ImportError(f"{dotted_path} doesn't look like a module path")
+
+    module = import_module(module_path)
+    try:
+        return getattr(module, object_name)
+    except AttributeError:
+        log.warning("Module '%s' does not define a '%s'", module_path, object_name)
+        raise ImportError(f"Module '{module_path}' does not define a '{object_name}'")
+
+
+def validate_dl_content_filter_callback(dotted_path: str) -> None:
+    """Raise ValidationError if dotted_path is not importable"""
+    try:
+        import_from_string(dotted_path)
+    except ImportError as e:
+        raise ValidationError(f"Invalid dl_content_filter_callback: {e}") from e
 
 
 def create_edx_user(first_name: str, last_name: str) -> tuple[User, bool]:
@@ -495,6 +523,19 @@ class LaunchGate(models.Model):
         blank=True,
         validators=[validate_org_block_filter],
     )
+    dl_content_filter_callback = models.CharField(
+        default="",
+        blank=True,
+        max_length=255,
+        help_text="Optional callback to filter deep linking content",
+        validators=[validate_dl_content_filter_callback],
+    )
+
+    def get_dl_content_filter_callback(self) -> t.Callable | None:
+        """Return the dl_content_filter_callback if set, else None"""
+        if self.dl_content_filter_callback:
+            return import_from_string(self.dl_content_filter_callback)
+        return None
 
     def can_access_key(self, usage_key: UsageKey) -> bool:
         """
