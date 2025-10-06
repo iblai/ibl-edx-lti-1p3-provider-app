@@ -22,10 +22,16 @@ class DlBlockFilterError(Lti1p3ProviderError):
     Args:
         developer_message: A message for the developer to help debug the issue
         user_message: A message for the user to explain the issue
+        status_code: The HTTP status code to return
 
     If no user_message is provided, a generic error will be returned.
+
+
     """
 
-    def __init__(self, dev_message: str = "", user_message: str = "") -> None:
+    def __init__(
+        self, dev_message: str = "", user_message: str = "", status_code: int = 400
+    ) -> None:
         self.user_message = user_message
         self.dev_message = dev_message or user_message
+        self.status_code = status_code
