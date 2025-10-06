@@ -986,6 +986,16 @@ class DeepLinkingContentSelectionView(LtiToolView):
             )
             error = f"{error.rstrip().rstrip('.')}. {get_contact_support_msg()}"
             content = []
+        except Exception as e:
+            log.error(
+                "Error getting selectable content: %s for tool (%s)", e, self.tool_info
+            )
+            error_title = "Deep Linking Error"
+            error = (
+                "There was an issue loading the content selection interface. "
+                f"{get_contact_support_msg()}"
+            )
+            content = []
 
         return {
             "selectable_content": content,
