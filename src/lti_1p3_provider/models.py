@@ -68,12 +68,17 @@ from organizations.models import Organization
 from pylti1p3.contrib.django import DjangoDbToolConf, DjangoMessageLaunch
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
 from pylti1p3.grade import Grade
+from pylti1p3.message_launch import MessageLaunch
+from xblock.core import XBlock
 
 EDX_LTI_EMAIL_DOMAIN = "edx-lti-1p3.com"
 
 log = logging.getLogger(__name__)
 
 User = get_user_model()
+
+# Type alias for the deep linking content filter callable
+DlContentFilterCallable = t.Callable[[MessageLaunch], t.Callable[[XBlock], bool]]
 
 
 def import_from_string(dotted_path: str) -> t.Callable:
@@ -523,18 +528,28 @@ class LaunchGate(models.Model):
         blank=True,
         validators=[validate_org_block_filter],
     )
-    dl_content_filter_callback = models.CharField(
+    dl_content_filter_path = models.CharField(
         default="",
         blank=True,
         max_length=255,
-        help_text="Optional callback to filter deep linking content",
+        help_text=(
+            "Dotted path to Callable to filter dl content. Must accept a pylti1p3 MessageLaunch "
+            "and return a Callable that accepts an XBlock instance and returns bool "
+            "(True = keep, False = filter out)"
+        ),
         validators=[validate_dl_content_filter_callback],
     )
 
-    def get_dl_content_filter_callback(self) -> t.Callable | None:
-        """Return the dl_content_filter_callback if set, else None"""
-        if self.dl_content_filter_callback:
-            return import_from_string(self.dl_content_filter_callback)
+    def get_dl_content_filter_callable(self) -> DlContentFilterCallable | None:
+        """Return the Callable from the dl_content_filter_path if set, else None
+
+        The Callable must accept a single argument: MessageLaunch
+
+        It must return a Callable that accepts a single argument: an xblock instance and return
+        a bool indicating whether to filter it out (True = keep, False = filter out)
+        """
+        if self.dl_content_filter_path:
+            return import_from_string(self.dl_content_filter_path)
         return None
 
     def can_access_key(self, usage_key: UsageKey) -> bool:
