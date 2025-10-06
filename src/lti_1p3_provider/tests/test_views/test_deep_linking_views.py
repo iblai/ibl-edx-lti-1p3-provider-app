@@ -21,7 +21,7 @@ from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory
 
 from lti_1p3_provider.dl_content_selection import Content
-from lti_1p3_provider.models import import_from_string
+from lti_1p3_provider.exceptions import DlBlockFilterError
 from lti_1p3_provider.session_access import LTI_DEEP_LINKING_SESSION_PREFIX
 from lti_1p3_provider.tests import factories, fakes
 from lti_1p3_provider.views import DEFAULT_LTI_DEEP_LINKING_ACCEPT_ROLES
@@ -493,6 +493,97 @@ class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBaseTest
         assert resp.status_code == 500
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "Invalid Session"
+
+    def test_get_content_selection_with_invalid_dl_content_filter_path_returns_error(
+        self, mock_get_content, client, enable_cache
+    ):
+        """Test GET request with invalid dl_content_filter_path raises ImportError and shows error"""
+        # Setup LaunchGate with invalid dl_content_filter_path
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=["test-org"],
+            dl_content_filter_path="invalid.module.path.that.does.not.exist",
+        )
+
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 200
+        soup = BeautifulSoup(resp.content, "html.parser")
+
+        # Check that error is displayed
+        error_div = soup.find("div", class_="error-display")
+        assert error_div is not None
+        assert error_div.find("h3").text == "Deep Linking Error"
+        assert (
+            "There was an issue loading the content selection interface"
+            in error_div.find("p").text
+        )
+
+    @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
+    def test_get_content_selection_with_dl_block_filter_error_returns_error(
+        self, mock_get_content, client, enable_cache
+    ):
+        """Test GET request with dl_content_filter_path that raises DlBlockFilterError shows error"""
+        mock_get_content.side_effect = DlBlockFilterError(user_message="Test error")
+        # Setup LaunchGate with dl_content_filter_path that raises DlBlockFilterError
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=["test-org"],
+            dl_content_filter_path="lti_1p3_provider.tests.test_views.test_deep_linking_views.dl_block_filter",
+        )
+
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 200
+        soup = BeautifulSoup(resp.content, "html.parser")
+
+        # Check that error is displayed
+        error_div = soup.find("div", class_="error-display")
+        assert error_div is not None
+        assert error_div.find("h3").text == "Deep Linking Error"
+        assert "Test error" in error_div.find("p").text
+
+    @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
+    def test_get_content_selection_with_generic_exception_returns_error(
+        self, mock_get_content, client, enable_cache
+    ):
+        """Test GET request with dl_content_filter_path that raises generic Exception shows error"""
+        mock_get_content.side_effect = ValueError("unhandled error")
+        # Setup LaunchGate with dl_content_filter_path that raises ValueError (generic exception)
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=["test-org"],
+            dl_content_filter_path="lti_1p3_provider.tests.test_views.test_deep_linking_views.dl_block_filter_valueerror",
+        )
+
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 200
+        soup = BeautifulSoup(resp.content, "html.parser")
+
+        # Check that error is displayed
+        error_div = soup.find("div", class_="error-display")
+        assert error_div is not None
+        assert error_div.find("h3").text == "Deep Linking Error"
+        assert (
+            "There was an issue loading the content selection interface"
+            in error_div.find("p").text
+        )
 
 
 @pytest.mark.django_db
