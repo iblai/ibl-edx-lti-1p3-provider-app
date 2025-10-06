@@ -545,10 +545,10 @@ class LaunchGate(models.Model):
     def get_dl_content_filter_callable(self) -> DlContentFilterCallable | None:
         """Return the Callable from the dl_content_filter_path if set, else None
 
-        The Callable must accept a single argument: MessageLaunch and platform_key
+        The Callable must accept arguments: msg: MessageLaunch, platform_org: str
 
         It must return a Callable[[XBlock], bool] where bool indicates whether to
-        filter it in (True = keep, False = filter out)
+        filter that block in (True = keep, False = filter out)
 
         Raise a DlBlockFilterError from the callable if there are any issues to prevent
         showing any content to the end user.
