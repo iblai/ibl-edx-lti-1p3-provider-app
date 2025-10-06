@@ -549,6 +549,9 @@ class LaunchGate(models.Model):
 
         It must return a Callable[[XBlock], bool] where bool indicates whether to
         filter it in (True = keep, False = filter out)
+
+        Raise a DlBlockFilterError from the callable if there are any issues to prevent
+        showing any content to the end user.
         """
         if self.dl_content_filter_path:
             return import_from_string(self.dl_content_filter_path)
