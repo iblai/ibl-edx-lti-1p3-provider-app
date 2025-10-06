@@ -41,7 +41,11 @@ from pylti1p3.contrib.django import (
 from pylti1p3.deep_link_resource import DeepLinkResource
 from pylti1p3.exception import LtiException, OIDCException
 
-from .dl_content_selection import get_selectable_dl_content, get_xblock_display_name
+from .dl_content_selection import (
+    Content,
+    get_selectable_dl_content,
+    get_xblock_display_name,
+)
 from .error_formatter import reformat_error
 from .error_response import (
     MISSING_SESSION_COOKIE_ERR_MSG,
@@ -817,17 +821,17 @@ class DeepLinkingContentSelectionView(LtiToolView):
             launch_data_storage=self.lti_tool_storage,
         )
 
-        tool = self.lti_tool_config.get_lti_tool(
+        self.tool = self.lti_tool_config.get_lti_tool(
             self.launch_message.get_iss(), self.launch_message.get_client_id()
         )
 
         try:
-            self.launch_gate: LaunchGate = tool.launch_gate
+            self.launch_gate: LaunchGate = self.tool.launch_gate
         except LaunchGate.DoesNotExist:
             log.error(
                 "Tool (iss=%s, client_id=%s) has no LaunchGate; denying access",
-                tool.issuer,
-                tool.client_id,
+                self.tool.issuer,
+                self.tool.client_id,
             )
             return render_edx_error(
                 request,
@@ -957,21 +961,46 @@ class DeepLinkingContentSelectionView(LtiToolView):
 
     def _get_context(self, error_title: str = "", error: str = ""):
         """Return context for select_deep_link_content.html"""
-        block_filter = None
-        if self.launch_gate.dl_content_filter_path:
-            log.info(
-                "Using block filter %s for DL Content Selection (%s)",
+        try:
+            content = self._get_selectable_content()
+        except ImportError:
+            # Something went wrong importing the filter despite the input validation
+            # in django admin
+            log.error(
+                "Failed to import dl_content_filter_path: %s for tool (%s)",
                 self.launch_gate.dl_content_filter_path,
                 self.tool_info,
             )
-            block_filter = self.launch_gate.get_dl_content_filter_callable()
-        content = get_selectable_dl_content(self.launch_gate, block_filter)
-
+            error_title = "Internal Error Occurred"
+            error = (
+                "There was an issue loading the content selection interface. "
+                f"{get_contact_support_msg()}"
+            )
+            content = []
         return {
             "selectable_content": content,
             "error_title": error_title,
             "error": error,
         }
+
+    def _get_selectable_content(self) -> dict[str, list[Content]]:
+        """Return selectable content or raise ImportError if we fail to load filter"""
+        block_filter = None
+        dl_content_callable = self.launch_gate.get_dl_content_filter_callable()
+        if dl_content_callable:
+            log.info(
+                "Using block filter %s for DL Content Selection (%s)",
+                self.launch_gate.dl_content_filter_path,
+                self.tool_info,
+            )
+            block_filter = dl_content_callable(
+                self.launch_message, self._get_platform_org()
+            )
+        return get_selectable_dl_content(self.launch_gate, block_filter)
+
+    def _get_platform_org(self) -> str:
+        """Return the platform org for the tool"""
+        return self.tool.tool_org.org.short_name
 
     def _get_target_link_uri(self, usage_key: UsageKey) -> str:
         """Generate absolute target_link_uri to xblock usage_key"""
