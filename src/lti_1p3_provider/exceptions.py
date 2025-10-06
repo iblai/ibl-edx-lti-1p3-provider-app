@@ -35,3 +35,6 @@ class DlBlockFilterError(Lti1p3ProviderError):
         self.user_message = user_message
         self.dev_message = dev_message or user_message
         self.status_code = status_code
+
+    def __str__(self) -> str:
+        return self.user_message if self.user_message else self.dev_message
