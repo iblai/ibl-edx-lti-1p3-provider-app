@@ -305,7 +305,7 @@ class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBaseTest
         resp = client.get(url)
 
         assert resp.status_code == 200
-        mock_get_content.assert_called_once_with(gate)
+        mock_get_content.assert_called_once_with(gate, None)
         soup = BeautifulSoup(resp.content, "html.parser")
         no_content_div = soup.find("div", class_="no-content-message")
         assert no_content_div.find("h3").text == "No Content Available"
@@ -330,9 +330,9 @@ class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBaseTest
         resp = client.get(url)
 
         assert resp.status_code == 200
-        mock_get_content.assert_called_once_with(gate)
+        mock_get_content.assert_called_once_with(gate, None)
         soup = BeautifulSoup(resp.content, "html.parser")
-        form = soup.find("form")
+        assert soup.find("form")
 
     @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
     def test_get_content_selection_with_invalid_token_returns_404(
