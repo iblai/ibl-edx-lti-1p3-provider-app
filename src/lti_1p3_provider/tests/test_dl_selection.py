@@ -1,7 +1,4 @@
-import typing as t
-
 from organizations.tests.factories import OrganizationFactory
-from pylti1p3.message_launch import MessageLaunch
 from xblock.core import XBlock
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory
