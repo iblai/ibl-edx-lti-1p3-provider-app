@@ -495,7 +495,7 @@ class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBaseTest
         assert soup.find("h1").text == "Invalid Session"
 
     def test_get_content_selection_with_invalid_dl_content_filter_path_returns_error(
-        self, mock_get_content, client, enable_cache
+        self, client, enable_cache
     ):
         """Test GET request with invalid dl_content_filter_path raises ImportError and shows error"""
         # Setup LaunchGate with invalid dl_content_filter_path
@@ -512,7 +512,7 @@ class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBaseTest
         )
         resp = client.get(url)
 
-        assert resp.status_code == 200
+        assert resp.status_code == 500
         soup = BeautifulSoup(resp.content, "html.parser")
 
         # Check that error is displayed
@@ -544,7 +544,7 @@ class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBaseTest
         )
         resp = client.get(url)
 
-        assert resp.status_code == 200
+        assert resp.status_code == 400
         soup = BeautifulSoup(resp.content, "html.parser")
 
         # Check that error is displayed
@@ -573,7 +573,7 @@ class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBaseTest
         )
         resp = client.get(url)
 
-        assert resp.status_code == 200
+        assert resp.status_code == 500
         soup = BeautifulSoup(resp.content, "html.parser")
 
         # Check that error is displayed
