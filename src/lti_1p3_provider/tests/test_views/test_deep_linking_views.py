@@ -26,6 +26,15 @@ from lti_1p3_provider.tests import factories, fakes
 from lti_1p3_provider.views import DEFAULT_LTI_DEEP_LINKING_ACCEPT_ROLES
 
 
+def dl_block_filter(msg_launch):
+    """Block filter for testing"""
+
+    def _filter(block) -> bool:
+        return block.location.block_type != "html"
+
+    return _filter
+
+
 @pytest.fixture
 def enable_cache(settings):
     settings.CACHES = {
@@ -331,6 +340,32 @@ class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBaseTest
 
         assert resp.status_code == 200
         mock_get_content.assert_called_once_with(gate, None)
+        soup = BeautifulSoup(resp.content, "html.parser")
+        assert soup.find("form")
+
+    @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
+    def test_get_content_with_dl_content_selection_path_with_content_renders_page(
+        self, mock_get_content, client, enable_cache
+    ):
+        """Test GET request with dl_content_filter_path set passes filter to mock_get_content"""
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=["test-org"],
+            allowed_courses=["course1", "course2"],
+            dl_content_filter_path="lti_1p3_provider.tests.test_views.test_deep_linking_views.dl_block_filter",
+        )
+        mock_get_content.return_value = self.SIMPLE_CONTENT
+
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content",
+            kwargs={"token": self.token},
+        )
+        resp = client.get(url)
+
+        assert resp.status_code == 200
+        mock_get_content.assert_called_once_with(gate, dl_block_filter)
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("form")
 
