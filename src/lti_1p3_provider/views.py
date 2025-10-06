@@ -44,7 +44,7 @@ from pylti1p3.exception import LtiException, OIDCException
 from .dl_content_selection import (
     Content,
     get_selectable_dl_content,
-    get_xblock_display_name,
+    validate_and_get_xblock_display_name,
 )
 from .error_formatter import reformat_error
 from .error_response import (
@@ -925,28 +925,68 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 status=403,
             )
 
-        # Clear the deep linking session since content has been selected
+        status = 200
+        context = {}
+        block_filter = None
         try:
-            title = get_xblock_display_name(target_xblock)
+            dl_content_callable = self.launch_gate.get_dl_content_filter_callable()
+            if dl_content_callable:
+                block_filter = dl_content_callable(
+                    self.launch_message, self._get_platform_org()
+                )
+            title = validate_and_get_xblock_display_name(target_xblock, block_filter)
         except ValueError:
             log.error(
                 "Deep Linking Error for Tool (%s): Xblock not found: %s",
                 self.tool_info,
                 target_xblock,
             )
-            context, _ = self._get_context_and_status(
+            context, fetch_status = self._get_context_and_status(
                 error_title="Invalid Usage Key",
                 error=(
                     f"The selected content key is invalid or does not exist. {get_contact_support_msg()}"
                 ),
             )
+            status = 400 if fetch_status == 200 else fetch_status
+        except ImportError:
+            log.error(
+                "Failed to import dl_content_filter_path: %s for tool (%s)",
+                self.launch_gate.dl_content_filter_path,
+                self.tool_info,
+            )
+            context = {
+                "selectable_content": [],
+                "error_title": "Deep Linking Error",
+                "error": (
+                    "There was an issue loading the content selection interface. "
+                    f"{get_contact_support_msg()}"
+                ),
+            }
+            status = 500
+
+        except DlBlockFilterError as e:
+            log.error(
+                "DlBlockFilterError: %s for user %s selecting block %s. Tool (%s)",
+                e,
+                self.launch_message.get_launch_data()["sub"],
+                target_xblock,
+                self.tool_info,
+            )
+            context, fetch_status = self._get_context_and_status(
+                error_title="Deep Linking Error",
+                error=(f"{e}. {get_contact_support_msg()}"),
+            )
+            status = 403 if fetch_status == 200 else fetch_status
+
+        if status != 200:
             return render(
                 self.request,
                 "lti_1p3_provider/select_deep_link_content.html",
                 context,
-                status=400,
+                status=status,
             )
 
+        # Clear the deep linking session since content has been selected successfully
         clear_deep_linking_session(session=request.session, token=token)
         target_link_uri = self._get_target_link_uri(target_xblock)
         resource = DeepLinkResource()
@@ -963,7 +1003,10 @@ class DeepLinkingContentSelectionView(LtiToolView):
         return HttpResponse(deep_link_response, content_type="text/html")
 
     def _get_context_and_status(self, error_title: str = "", error: str = ""):
-        """Return context for select_deep_link_content.html"""
+        """Return context for select_deep_link_content.html
+
+        Fetches selectable content and returns a context and status code
+        """
         status = 200
         try:
             content = self._get_selectable_content()
