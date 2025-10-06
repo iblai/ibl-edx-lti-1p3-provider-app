@@ -852,9 +852,12 @@ class DeepLinkingContentSelectionView(LtiToolView):
             token: Unique token for this deep linking session
         """
 
-        context = self._get_context()
+        context, status = self._get_context_and_status()
         return render(
-            self.request, "lti_1p3_provider/select_deep_link_content.html", context
+            self.request,
+            "lti_1p3_provider/select_deep_link_content.html",
+            context,
+            status=status,
         )
 
     def post(self, request, token: str):
@@ -868,7 +871,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
         target_xblock = request.POST.get("deep_link_content")
 
         if not target_xblock:
-            context = self._get_context(
+            context, _ = self._get_context_and_status(
                 error_title="No Content Selected",
                 error="Please select content to return to the platform.",
             )
@@ -890,7 +893,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 self.tool_info,
                 target_xblock,
             )
-            context = self._get_context(
+            context, _ = self._get_context_and_status(
                 error_title="Invalid Usage Key",
                 error=(
                     f"The selected content key is invalid. {get_contact_support_msg()}"
@@ -909,7 +912,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 self.tool_info,
                 target_xblock,
             )
-            context = self._get_context(
+            context, _ = self._get_context_and_status(
                 error_title="Permission Denied",
                 error=(
                     f"You do not have permission to access the selected content. {get_contact_support_msg()}"
@@ -931,7 +934,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 self.tool_info,
                 target_xblock,
             )
-            context = self._get_context(
+            context, _ = self._get_context_and_status(
                 error_title="Invalid Usage Key",
                 error=(
                     f"The selected content key is invalid or does not exist. {get_contact_support_msg()}"
@@ -959,8 +962,9 @@ class DeepLinkingContentSelectionView(LtiToolView):
         # resubmit at this point
         return HttpResponse(deep_link_response, content_type="text/html")
 
-    def _get_context(self, error_title: str = "", error: str = ""):
+    def _get_context_and_status(self, error_title: str = "", error: str = ""):
         """Return context for select_deep_link_content.html"""
+        status = 200
         try:
             content = self._get_selectable_content()
         except ImportError:
@@ -977,6 +981,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 f"{get_contact_support_msg()}"
             )
             content = []
+            status = 500
         except DlBlockFilterError as e:
             log.error("Block Filter raised error: %s for tool (%s)", e, self.tool_info)
             error_title = "Deep Linking Error"
@@ -986,6 +991,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
             )
             error = f"{error.rstrip().rstrip('.')}. {get_contact_support_msg()}"
             content = []
+            status = e.status_code
         except Exception as e:
             log.error(
                 "Error getting selectable content: %s for tool (%s)", e, self.tool_info
@@ -996,12 +1002,13 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 f"{get_contact_support_msg()}"
             )
             content = []
+            status = 500
 
         return {
             "selectable_content": content,
             "error_title": error_title,
             "error": error,
-        }
+        }, status
 
     def _get_selectable_content(self) -> dict[str, list[Content]]:
         """Return selectable content
