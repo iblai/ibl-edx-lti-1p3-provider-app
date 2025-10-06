@@ -21,12 +21,13 @@ from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory
 
 from lti_1p3_provider.dl_content_selection import Content
+from lti_1p3_provider.models import import_from_string
 from lti_1p3_provider.session_access import LTI_DEEP_LINKING_SESSION_PREFIX
 from lti_1p3_provider.tests import factories, fakes
 from lti_1p3_provider.views import DEFAULT_LTI_DEEP_LINKING_ACCEPT_ROLES
 
 
-def dl_block_filter(msg_launch):
+def dl_block_filter(msg_launch, platform_org):
     """Block filter for testing"""
 
     def _filter(block) -> bool:
@@ -241,6 +242,7 @@ class DeepLinkingContentSelectionBaseTest:
 
     def setup_method(self):
         self.tool = factories.LtiToolFactory()
+        self.tool_org = factories.LtiToolOrgFactory(tool=self.tool)
         self.token = "test-token-123"
         # Need to use a password and client.login due to safesessions
         # It's Client.login is automatically patched to support safe sessions but
@@ -365,7 +367,13 @@ class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBaseTest
         resp = client.get(url)
 
         assert resp.status_code == 200
-        mock_get_content.assert_called_once_with(gate, dl_block_filter)
+
+        mock_get_content.assert_called_once()
+        args = mock_get_content.call_args.args
+        assert args[0] == gate
+        assert (
+            args[1].__name__ == "_filter"
+        )  # can't check the exact function bc it's a closure
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("form")
 
