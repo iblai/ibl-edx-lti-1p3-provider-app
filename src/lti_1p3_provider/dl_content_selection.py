@@ -7,10 +7,11 @@ from typing import Any, TypedDict
 
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
+from xblock.core import XBlock
 from xmodule.modulestore.django import modulestore
 from xmodule.modulestore.mixed import MixedModuleStore
 
-from lti_1p3_provider.models import DlContentFilterCallable, LaunchGate
+from lti_1p3_provider.models import LaunchGate
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class Content(TypedDict):
 
 
 def get_selectable_dl_content(
-    launch_gate: LaunchGate, block_filter: DlContentFilterCallable | None = None
+    launch_gate: LaunchGate, block_filter: t.Callable[[XBlock], bool] | None = None
 ) -> dict[str, list[Content]]:
     """
     Return a nested Content structure of all the blocks that are servable via LTI.
