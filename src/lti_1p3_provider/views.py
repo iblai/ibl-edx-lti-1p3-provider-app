@@ -53,7 +53,7 @@ from .error_response import (
     get_lti_error_response,
     render_edx_error,
 )
-from .exceptions import DeepLinkingError, MissingSessionError
+from .exceptions import DeepLinkingError, DlBlockFilterError, MissingSessionError
 from .jwks import get_jwks_for_org
 from .models import LaunchGate, LtiGradedResource, LtiProfile
 from .session_access import (
@@ -971,12 +971,22 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 self.launch_gate.dl_content_filter_path,
                 self.tool_info,
             )
-            error_title = "Internal Error Occurred"
+            error_title = "Deep Linking Error"
             error = (
                 "There was an issue loading the content selection interface. "
                 f"{get_contact_support_msg()}"
             )
             content = []
+        except DlBlockFilterError as e:
+            log.error("Block Filter raised error: %s for tool (%s)", e, self.tool_info)
+            error_title = "Deep Linking Error"
+            error = (
+                e.user_message
+                or "There was an issue loading the content selection interface."
+            )
+            error = f"{error.rstrip().rstrip('.')}. {get_contact_support_msg()}"
+            content = []
+
         return {
             "selectable_content": content,
             "error_title": error_title,
