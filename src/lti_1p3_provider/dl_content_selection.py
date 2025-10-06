@@ -11,6 +11,7 @@ from xblock.core import XBlock
 from xmodule.modulestore.django import modulestore
 from xmodule.modulestore.mixed import MixedModuleStore
 
+from lti_1p3_provider.exceptions import DlBlockFilterError
 from lti_1p3_provider.models import LaunchGate
 
 log = logging.getLogger(__name__)
@@ -280,10 +281,23 @@ def _add_content(
     return all_content
 
 
-def get_xblock_display_name(usage_key: UsageKey) -> Any:
-    """Get an xblock's display name from the modulestore"""
+def validate_and_get_xblock_display_name(
+    usage_key: UsageKey, block_filter: t.Callable[[XBlock], bool] | None = None
+) -> str:
+    """Get an xblock's display name from the modulestore and validate access"""
+
     m = modulestore()
     block = m.get_item(usage_key)
     if not block:
         raise ValueError(f"Block not found: {usage_key}")
+
+    # This should only happen someone tried to post an xblock they don't have access to
+    # specifically trying to bypass the content selector, or their access was removed
+    # after starting deep linking selection
+    if block_filter and not block_filter(block):
+        log.warning("User does not have acces to block %s", usage_key)
+        raise DlBlockFilterError(
+            user_message="You don't have access to this content", status_code=403
+        )
+
     return block.display_name
