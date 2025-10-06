@@ -592,7 +592,7 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
     """Tests for Deep Linking Content Selection View POST"""
 
     @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
-    @mock.patch("lti_1p3_provider.views.get_xblock_display_name")
+    @mock.patch("lti_1p3_provider.views.validate_and_get_xblock_display_name")
     def test_successful_post_with_valid_content_selection(
         self, mock_get_display_name, mock_get_content
     ):
@@ -729,7 +729,7 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h3").text == "Invalid Usage Key"
 
-    @mock.patch("lti_1p3_provider.views.get_xblock_display_name")
+    @mock.patch("lti_1p3_provider.views.validate_and_get_xblock_display_name")
     @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
     def test_post_clears_deep_linking_session_after_success(
         self, mock_get_content, mock_get_display_name, client
@@ -760,7 +760,7 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
         # Verify session was cleared after successful POST
         assert session_key not in client.session
 
-    @mock.patch("lti_1p3_provider.views.get_xblock_display_name")
+    @mock.patch("lti_1p3_provider.views.validate_and_get_xblock_display_name")
     def test_post_generates_correct_target_link_uri(
         self, mock_get_display_name, client
     ):
@@ -794,7 +794,7 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
         assert jwt_input is not None, "Form should contain JWT input field"
         assert jwt_input.get("value") is not None, "JWT input should have a value"
 
-    @mock.patch("lti_1p3_provider.views.get_xblock_display_name")
+    @mock.patch("lti_1p3_provider.views.validate_and_get_xblock_display_name")
     def test_post_with_different_usage_key_still_works(
         self, mock_get_display_name, client
     ):
