@@ -1,4 +1,8 @@
+import typing as t
+
 from organizations.tests.factories import OrganizationFactory
+from pylti1p3.message_launch import MessageLaunch
+from xblock.core import XBlock
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase
 from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory
 
@@ -10,9 +14,14 @@ from lti_1p3_provider.dl_content_selection import (
 from lti_1p3_provider.tests.factories import LaunchGateFactory
 
 
+def dl_block_filter(block: XBlock) -> bool:
+    """Return True if the block is not an html block"""
+    return block.location.block_type != "html"
+
+
 def _find_missing_keys(content: Content, keys: list[str]) -> list[str]:
     """
-    Recursively search through content and its children to find matching usage_keys.
+    Search through content to find missing usage_keys.
 
     Args:
         content: The Content object to search in
@@ -597,3 +606,40 @@ class TestDlSelection(ModuleStoreTestCase):
         assert len(org2_courses) == 1
         course_3_content = _get_course_content(org2_courses, str(self.course3.location))
         assert not _find_missing_keys(course_3_content, self.all_lti_course3_blocks)
+
+    def test_dl_block_filter_is_applied_when_present(self):
+        """Test that dl_block_filter is applied when present
+
+        In this instance it filters out html blocks
+        """
+        # Create a launch gate that allows all content from org1
+        lg = LaunchGateFactory.build(allowed_orgs=[self.org1.short_name])
+
+        # Get content with the block filter - should exclude HTML blocks
+        content = get_selectable_dl_content(lg, dl_block_filter)
+
+        assert_no_duplicate_content(content)
+
+        # Should have org1
+        assert self.org1.short_name in content
+
+        # Get course1 and course2 content
+        org1_courses = content[self.org1.short_name]
+        course1_content = _get_course_content(org1_courses, str(self.course1.location))
+        course2_content = _get_course_content(org1_courses, str(self.course2.location))
+
+        # Course1 should have all its content (no HTML blocks to filter out)
+        assert not _find_missing_keys(course1_content, self.all_lti_course1_blocks)
+
+        # Course2 should exclude the HTML block but keep others
+        expected_course2_keys_without_html = [
+            str(self.course2_subsection1.location),
+            str(self.course2_unit1.location),
+        ]
+        assert not _find_missing_keys(
+            course2_content, expected_course2_keys_without_html
+        )
+
+        # Verify the HTML block is actually missing
+        course2_keys = [child["usage_key"] for child in course2_content["children"]]
+        assert str(self.course2_html1.location) not in course2_keys
