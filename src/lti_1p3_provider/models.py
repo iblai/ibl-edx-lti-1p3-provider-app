@@ -78,13 +78,15 @@ log = logging.getLogger(__name__)
 User = get_user_model()
 
 # Type alias for the deep linking content filter callable
-DlContentFilterCallable = t.Callable[[MessageLaunch], t.Callable[[XBlock], bool]]
+DlContentFilterCallable = t.Callable[[MessageLaunch, str], t.Callable[[XBlock], bool]]
 
 
-def import_from_string(dotted_path: str) -> t.Callable:
+def import_from_string(dotted_path: str) -> t.Callable[[XBlock], bool]:
     """
     Import an object (class, function, variable, etc.) from a dotted path string.
     Example: 'package.module.ClassName'
+
+    Raise ImportError if the module path is invalid
     """
     try:
         module_path, object_name = dotted_path.rsplit(".", 1)
@@ -543,10 +545,10 @@ class LaunchGate(models.Model):
     def get_dl_content_filter_callable(self) -> DlContentFilterCallable | None:
         """Return the Callable from the dl_content_filter_path if set, else None
 
-        The Callable must accept a single argument: MessageLaunch
+        The Callable must accept a single argument: MessageLaunch and platform_key
 
-        It must return a Callable that accepts a single argument: an xblock instance and return
-        a bool indicating whether to filter it out (True = keep, False = filter out)
+        It must return a Callable[[XBlock], bool] where bool indicates whether to
+        filter it in (True = keep, False = filter out)
         """
         if self.dl_content_filter_path:
             return import_from_string(self.dl_content_filter_path)
