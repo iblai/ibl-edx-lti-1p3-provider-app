@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import typing as t
 from collections import defaultdict
 from typing import Any, TypedDict
 
@@ -9,7 +10,7 @@ from opaque_keys.edx.keys import CourseKey, UsageKey
 from xmodule.modulestore.django import modulestore
 from xmodule.modulestore.mixed import MixedModuleStore
 
-from lti_1p3_provider.models import LaunchGate
+from lti_1p3_provider.models import DlContentFilterCallable, LaunchGate
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +23,9 @@ class Content(TypedDict):
     description: str
 
 
-def get_selectable_dl_content(launch_gate: LaunchGate) -> dict[str, list[Content]]:
+def get_selectable_dl_content(
+    launch_gate: LaunchGate, block_filter: DlContentFilterCallable | None = None
+) -> dict[str, list[Content]]:
     """
     Return a nested Content structure of all the blocks that are servable via LTI.
 
@@ -67,7 +70,11 @@ def get_selectable_dl_content(launch_gate: LaunchGate) -> dict[str, list[Content
             with m.bulk_operations(course_key):
                 # Get course content with filtering
                 course_content = _get_course_content(
-                    m, course, launch_gate, allowed_keys
+                    m,
+                    course,
+                    launch_gate,
+                    allowed_keys,
+                    block_filter,
                 )
                 if course_content["children"]:
                     results[org].append(course_content)
@@ -77,7 +84,7 @@ def get_selectable_dl_content(launch_gate: LaunchGate) -> dict[str, list[Content
             continue
 
     explicitly_allowed_blocks = _fetch_explicitly_allowed_blocks(
-        m, launch_gate, allowed_keys
+        m, launch_gate, allowed_keys, block_filter
     )
     results = _add_content(m, results, explicitly_allowed_blocks)
 
@@ -116,7 +123,10 @@ def _get_courses(m: MixedModuleStore, launch_gate: LaunchGate) -> dict[str, Cont
 
 
 def _fetch_explicitly_allowed_blocks(
-    m: MixedModuleStore, launch_gate: LaunchGate, allowed_keys: list[str]
+    m: MixedModuleStore,
+    launch_gate: LaunchGate,
+    allowed_keys: list[str],
+    block_filter: t.Callable | None,
 ) -> list[Content]:
     """Fetch allowed keys from modulestore using bulk operations"""
     results = []
@@ -135,7 +145,12 @@ def _fetch_explicitly_allowed_blocks(
         block = m.get_item(usage_key)
         # We have to construct full tree in case block has children
         child_content = _traverse_and_filter_block(
-            m, block, launch_gate, course_content, allowed_keys
+            m,
+            block,
+            launch_gate,
+            course_content,
+            allowed_keys,
+            block_filter,
         )
         results.append(child_content)
 
@@ -143,7 +158,11 @@ def _fetch_explicitly_allowed_blocks(
 
 
 def _get_course_content(
-    m: MixedModuleStore, course: Any, launch_gate: LaunchGate, allowed_keys: list[str]
+    m: MixedModuleStore,
+    course: Any,
+    launch_gate: LaunchGate,
+    allowed_keys: list[str],
+    block_filter: t.Callable | None,
 ) -> Content:
     """Get course content with filtering applied"""
     # Build course content structure
@@ -161,6 +180,7 @@ def _get_course_content(
                 launch_gate,
                 course_content,
                 allowed_keys,
+                block_filter,
             )
             if child_content:
                 children.append(child_content)
@@ -175,6 +195,7 @@ def _traverse_and_filter_block(
     launch_gate: LaunchGate,
     course_content: list[Content],
     allowed_keys: list[str],
+    block_filter: t.Callable | None,
 ) -> Content | None:
     """Recursively traverse and filter blocks"""
     # Build content for this block
@@ -189,6 +210,7 @@ def _traverse_and_filter_block(
             launch_gate,
             course_content,
             allowed_keys,
+            block_filter,
         )
         if child_content:
             children.append(child_content)
@@ -196,10 +218,14 @@ def _traverse_and_filter_block(
     content["children"] = children
     location = block.location
     if launch_gate.can_access_key(location):
-        course_content.append(content)
-        # Won't need to refetch this one
-        if str(location) in allowed_keys:
-            allowed_keys.remove(str(location))
+        # Don't add the content if the block was filtered out
+        if block_filter and not block_filter(block):
+            pass
+        else:
+            course_content.append(content)
+            # Won't need to refetch this one
+            if str(location) in allowed_keys:
+                allowed_keys.remove(str(location))
     return content
 
 
