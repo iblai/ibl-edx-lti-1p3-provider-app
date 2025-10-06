@@ -994,7 +994,12 @@ class DeepLinkingContentSelectionView(LtiToolView):
         }
 
     def _get_selectable_content(self) -> dict[str, list[Content]]:
-        """Return selectable content or raise ImportError if we fail to load filter"""
+        """Return selectable content
+
+        Raises:
+          ImportError if block filter exists and it failes to load
+          DlBlockFilterError if block filter exists and it chooses to raise it
+        """
         block_filter = None
         dl_content_callable = self.launch_gate.get_dl_content_filter_callable()
         if dl_content_callable:
