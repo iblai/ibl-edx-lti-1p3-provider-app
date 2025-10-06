@@ -822,7 +822,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
         )
 
         try:
-            self.launch_gate = tool.launch_gate
+            self.launch_gate: LaunchGate = tool.launch_gate
         except LaunchGate.DoesNotExist:
             log.error(
                 "Tool (iss=%s, client_id=%s) has no LaunchGate; denying access",
@@ -957,8 +957,18 @@ class DeepLinkingContentSelectionView(LtiToolView):
 
     def _get_context(self, error_title: str = "", error: str = ""):
         """Return context for select_deep_link_content.html"""
+        block_filter = None
+        if self.launch_gate.dl_content_filter_path:
+            log.info(
+                "Using block filter %s for DL Content Selection (%s)",
+                self.launch_gate.dl_content_filter_path,
+                self.tool_info,
+            )
+            block_filter = self.launch_gate.get_dl_content_filter_callable()
+        content = get_selectable_dl_content(self.launch_gate, block_filter)
+
         return {
-            "selectable_content": get_selectable_dl_content(self.launch_gate),
+            "selectable_content": content,
             "error_title": error_title,
             "error": error,
         }
