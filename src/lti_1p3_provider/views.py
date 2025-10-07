@@ -963,7 +963,6 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 ),
             }
             status = 500
-
         except DlBlockFilterError as e:
             log.error(
                 "DlBlockFilterError: %s for user %s selecting block %s. Tool (%s)",
@@ -977,6 +976,21 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 error=(f"{e}. {get_contact_support_msg()}"),
             )
             status = 403 if fetch_status == 200 else fetch_status
+        except Exception as e:
+            log.error(
+                "Error getting selectable content: %s for user %s selecting block %s. Tool (%s)",
+                e,
+                self.launch_message.get_launch_data()["sub"],
+                target_xblock,
+                self.tool_info,
+            )
+            context, fetch_status = self._get_context_and_status(
+                error_title="Deep Linking Error",
+                error=(
+                    f"There was an issue loading the content selection interface. {get_contact_support_msg()}"
+                ),
+            )
+            status = 500 if fetch_status == 200 else fetch_status
 
         if status != 200:
             return render(
