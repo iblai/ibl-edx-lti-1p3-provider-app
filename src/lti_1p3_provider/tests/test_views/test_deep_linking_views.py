@@ -36,6 +36,33 @@ def dl_block_filter(msg_launch, platform_org):
     return _filter
 
 
+def dl_block_filter_always_true(msg_launch, platform_org):
+    """Block filter that always returns True for testing"""
+
+    def _filter(block) -> bool:
+        return True
+
+    return _filter
+
+
+def dl_block_filter_raises_error(msg_launch, platform_org):
+    """Block filter that raises DlBlockFilterError for testing"""
+
+    def _filter(block) -> bool:
+        raise DlBlockFilterError(user_message="Test filter error")
+
+    return _filter
+
+
+def dl_block_filter_raises_generic_error(msg_launch, platform_org):
+    """Block filter that raises a generic Exception for testing"""
+
+    def _filter(block) -> bool:
+        raise ValueError("Generic filter error")
+
+    return _filter
+
+
 @pytest.fixture
 def enable_cache(settings):
     settings.CACHES = {
@@ -591,6 +618,17 @@ class TestDeepLinkingContentSelectionViewGET(DeepLinkingContentSelectionBaseTest
 class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTest):
     """Tests for Deep Linking Content Selection View POST"""
 
+    def _get_csrf_token(self, client, url):
+        """Helper method to get CSRF token from a form"""
+        # First GET request to get CSRF cookie
+        get_resp = client.get(url)
+        assert get_resp.status_code == 200
+
+        # Extract CSRF token from the form
+        soup = BeautifulSoup(get_resp.content, "html.parser")
+        csrf_input = soup.find("input", {"name": "csrfmiddlewaretoken"})
+        return csrf_input.get("value") if csrf_input else None
+
     @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
     @mock.patch("lti_1p3_provider.views.validate_and_get_xblock_display_name")
     def test_successful_post_with_valid_content_selection(
@@ -616,14 +654,7 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
             "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
         )
 
-        # First GET request to get CSRF cookie
-        get_resp = client.get(url)
-        assert get_resp.status_code == 200
-
-        # Extract CSRF token from the form
-        soup = BeautifulSoup(get_resp.content, "html.parser")
-        csrf_input = soup.find("input", {"name": "csrfmiddlewaretoken"})
-        csrf_token = csrf_input.get("value") if csrf_input else None
+        csrf_token = self._get_csrf_token(client, url)
         assert csrf_token is not None, "CSRF token should be present in the form"
 
         # POST request with CSRF token
@@ -906,6 +937,103 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
         soup = BeautifulSoup(resp.content, "html.parser")
         assert soup.find("h1").text == "No Accessible Content"
 
+    def test_post_with_invalid_dl_content_filter_path_returns_500(self, client):
+        """Test POST request with invalid dl_content_filter_path raises ImportError and returns 500"""
+        # Setup LaunchGate with invalid dl_content_filter_path
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=[factories.COURSE_KEY.org],
+            dl_content_filter_path="invalid.module.path.that.does.not.exist",
+        )
+
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, {"deep_link_content": str(factories.USAGE_KEY)})
+
+        assert resp.status_code == 500
+        soup = BeautifulSoup(resp.content, "html.parser")
+
+        # Check that error is displayed
+        error_div = soup.find("div", class_="error-display")
+        assert error_div is not None
+        assert error_div.find("h3").text == "Deep Linking Error"
+        assert (
+            "There was an issue loading the content selection interface"
+            in error_div.find("p").text
+        )
+
+    @mock.patch("lti_1p3_provider.views.get_selectable_dl_content")
+    @mock.patch("lti_1p3_provider.views.validate_and_get_xblock_display_name")
+    def test_post_with_dl_block_filter_error_returns_403(
+        self, mock_get_display_name, mock_get_content, client
+    ):
+        """Test POST request with dl_content_filter_path that raises DlBlockFilterError returns 403"""
+        mock_get_content.return_value = self.SIMPLE_CONTENT
+        mock_get_display_name.side_effect = [
+            DlBlockFilterError(user_message="Test filter error"),
+            "Test Title",
+        ]
+        # Setup LaunchGate with dl_content_filter_path that raises DlBlockFilterError
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=[factories.COURSE_KEY.org],
+            dl_content_filter_path="lti_1p3_provider.tests.test_views.test_deep_linking_views.dl_block_filter_raises_error",
+        )
+
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, {"deep_link_content": str(factories.USAGE_KEY)})
+
+        assert resp.status_code == 403
+        soup = BeautifulSoup(resp.content, "html.parser")
+
+        # Check that error is displayed
+        error_div = soup.find("div", class_="error-display")
+        assert error_div is not None
+        assert error_div.find("h3").text == "Deep Linking Error"
+        assert "Test filter error" in error_div.find("p").text
+
+    @mock.patch("lti_1p3_provider.views.validate_and_get_xblock_display_name")
+    def test_post_with_generic_exception_returns_500(
+        self, mock_get_display_name, client
+    ):
+        """Test POST request with dl_content_filter_path that raises generic Exception returns 500"""
+        mock_get_display_name.side_effect = ValueError("Generic filter error")
+        # Setup LaunchGate with dl_content_filter_path that raises ValueError (generic exception)
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=[factories.COURSE_KEY.org],
+            dl_content_filter_path="lti_1p3_provider.tests.test_views.test_deep_linking_views.dl_block_filter_raises_generic_error",
+        )
+
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, {"deep_link_content": str(factories.USAGE_KEY)})
+
+        assert resp.status_code == 500
+        soup = BeautifulSoup(resp.content, "html.parser")
+
+        # Check that error is displayed
+        error_div = soup.find("div", class_="error-display")
+        assert error_div is not None
+        assert error_div.find("h3").text == "Deep Linking Error"
+        assert (
+            "There was an issue loading the content selection interface"
+            in error_div.find("p").text
+        )
+
 
 @pytest.mark.django_db
 class TestDeepLinkingContentSelectionWithModulestore(ModuleStoreTestCase):
@@ -976,6 +1104,7 @@ class TestDeepLinkingContentSelectionWithModulestore(ModuleStoreTestCase):
 
         # Setup LTI tool and user
         self.tool = factories.LtiToolFactory()
+        factories.LtiToolOrgFactory(tool=self.tool, org=self.org)
         self.token = "test-token-123"
         self.user = factories.UserFactory()
         self.password = "password"
@@ -1117,3 +1246,45 @@ class TestDeepLinkingContentSelectionWithModulestore(ModuleStoreTestCase):
         assert submit_button is not None
         assert submit_button.get("disabled") is not None
         assert submit_button.text.strip() == "Select Content"
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "test-cache",
+            }
+        }
+    )
+    def test_post_with_always_true_dl_block_filter_succeeds(self):
+        """Test POST request with dl_content_filter_path that always returns True succeeds with real content"""
+        client = Client()
+
+        # Update the launch gate to use the always-true filter
+        self.launch_gate.dl_content_filter_path = "lti_1p3_provider.tests.test_views.test_deep_linking_views.dl_block_filter_always_true"
+        self.launch_gate.save()
+
+        self._setup_session(client)
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        # POST with one of the problem blocks
+        resp = client.post(url, {"deep_link_content": str(self.problem1.location)})
+
+        assert resp.status_code == 200
+        assert resp["Content-Type"] == "text/html"
+
+        # Check that the response is a valid auto-submitted HTML form
+        soup = BeautifulSoup(resp.content, "html.parser")
+        form = soup.find("form")
+        assert form is not None, "Response should contain an HTML form"
+
+        # Check for JWT form field
+        jwt_input = form.find("input", {"name": "JWT"})
+        assert jwt_input is not None, "Form should contain JWT input field"
+        assert jwt_input.get("value") is not None, "JWT input should have a value"
+
+        # Verify that the deep linking session was cleared
+        session_key = f"{LTI_DEEP_LINKING_SESSION_PREFIX}{self.token}"
+        assert session_key not in client.session
