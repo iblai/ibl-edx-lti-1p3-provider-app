@@ -1050,7 +1050,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
             content = []
             status = e.status_code
         except Exception as e:
-            log.error(
+            log.exception(
                 "Error getting selectable content: %s for tool (%s)", e, self.tool_info
             )
             error_title = "Deep Linking Error"
