@@ -536,7 +536,7 @@ class LaunchGate(models.Model):
         max_length=255,
         help_text=(
             "Dotted path to Callable to filter dl content. Must accept a pylti1p3 MessageLaunch "
-            "and return a Callable that accepts an XBlock instance and returns bool "
+            "and platform org and return a Callable that accepts an XBlock instance and returns bool "
             "(True = keep, False = filter out)"
         ),
         validators=[validate_dl_content_filter_callback],

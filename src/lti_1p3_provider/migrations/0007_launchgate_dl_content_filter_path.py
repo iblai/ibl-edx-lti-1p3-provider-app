@@ -14,6 +14,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='launchgate',
             name='dl_content_filter_path',
-            field=models.CharField(blank=True, default='', help_text='Dotted path to Callable to filter dl content. Must accept a pylti1p3 MessageLaunch and return a Callable that accepts an XBlock instance and returns bool (True = keep, False = filter out)', max_length=255, validators=[lti_1p3_provider.models.validate_dl_content_filter_callback]),
+            field=models.CharField(blank=True, default='', help_text='Dotted path to Callable to filter dl content. Must accept a pylti1p3 MessageLaunch and platform org and return a Callable that accepts an XBlock instance and returns bool (True = keep, False = filter out)', max_length=255, validators=[lti_1p3_provider.models.validate_dl_content_filter_callback]),
         ),
     ]
