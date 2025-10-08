@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 2.5.0
+### Changed
+- [#47](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/46): Add filter hook to register custom filtering functions per `LaunchGate` 
+
 ## 2.4.1
 ### Changed
 - [#45](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/45): Further validate the `target_link_uri` to ensure:
