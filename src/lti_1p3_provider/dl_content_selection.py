@@ -26,7 +26,8 @@ class Content(TypedDict):
 
 
 def get_selectable_dl_content(
-    launch_gate: LaunchGate, block_filter: t.Callable[[XBlock], bool] | None = None
+    launch_gate: LaunchGate,
+    block_filter: t.Callable[[XBlock], bool] | None = None,
 ) -> dict[str, list[Content]]:
     """
     Return a nested Content structure of all the blocks that are servable via LTI.
@@ -128,7 +129,7 @@ def _fetch_explicitly_allowed_blocks(
     m: MixedModuleStore,
     launch_gate: LaunchGate,
     allowed_keys: list[str],
-    block_filter: t.Callable | None,
+    block_filter: t.Callable[[XBlock], bool] | None = None,
 ) -> list[Content]:
     """Fetch allowed keys from modulestore using bulk operations"""
     results = []
@@ -221,9 +222,7 @@ def _traverse_and_filter_block(
     location = block.location
     if launch_gate.can_access_key(location):
         # Don't add the content if the block was filtered out
-        if block_filter and not block_filter(block):
-            pass
-        else:
+        if not block_filter or block_filter(block):
             course_content.append(content)
             # Won't need to refetch this one
             if str(location) in allowed_keys:
@@ -295,7 +294,7 @@ def validate_and_get_xblock_display_name(
     # specifically trying to bypass the content selector, or their access was removed
     # after starting deep linking selection
     if block_filter and not block_filter(block):
-        log.warning("User does not have acces to block %s", usage_key)
+        log.warning("User does not have access to block %s", usage_key)
         raise DlBlockFilterError(
             user_message="You don't have access to this content", status_code=403
         )
