@@ -41,7 +41,11 @@ from pylti1p3.contrib.django import (
 from pylti1p3.deep_link_resource import DeepLinkResource
 from pylti1p3.exception import LtiException, OIDCException
 
-from .dl_content_selection import get_selectable_dl_content, get_xblock_display_name
+from .dl_content_selection import (
+    Content,
+    get_selectable_dl_content,
+    validate_and_get_xblock_display_name,
+)
 from .error_formatter import reformat_error
 from .error_response import (
     MISSING_SESSION_COOKIE_ERR_MSG,
@@ -49,7 +53,7 @@ from .error_response import (
     get_lti_error_response,
     render_edx_error,
 )
-from .exceptions import DeepLinkingError, MissingSessionError
+from .exceptions import DeepLinkingError, DlBlockFilterError, MissingSessionError
 from .jwks import get_jwks_for_org
 from .models import LaunchGate, LtiGradedResource, LtiProfile
 from .session_access import (
@@ -817,17 +821,17 @@ class DeepLinkingContentSelectionView(LtiToolView):
             launch_data_storage=self.lti_tool_storage,
         )
 
-        tool = self.lti_tool_config.get_lti_tool(
+        self.tool = self.lti_tool_config.get_lti_tool(
             self.launch_message.get_iss(), self.launch_message.get_client_id()
         )
 
         try:
-            self.launch_gate = tool.launch_gate
+            self.launch_gate: LaunchGate = self.tool.launch_gate
         except LaunchGate.DoesNotExist:
             log.error(
                 "Tool (iss=%s, client_id=%s) has no LaunchGate; denying access",
-                tool.issuer,
-                tool.client_id,
+                self.tool.issuer,
+                self.tool.client_id,
             )
             return render_edx_error(
                 request,
@@ -848,9 +852,12 @@ class DeepLinkingContentSelectionView(LtiToolView):
             token: Unique token for this deep linking session
         """
 
-        context = self._get_context()
+        context, status = self._get_context_and_status()
         return render(
-            self.request, "lti_1p3_provider/select_deep_link_content.html", context
+            self.request,
+            "lti_1p3_provider/select_deep_link_content.html",
+            context,
+            status=status,
         )
 
     def post(self, request, token: str):
@@ -864,7 +871,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
         target_xblock = request.POST.get("deep_link_content")
 
         if not target_xblock:
-            context = self._get_context(
+            context, _ = self._get_context_and_status(
                 error_title="No Content Selected",
                 error="Please select content to return to the platform.",
             )
@@ -886,7 +893,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 self.tool_info,
                 target_xblock,
             )
-            context = self._get_context(
+            context, _ = self._get_context_and_status(
                 error_title="Invalid Usage Key",
                 error=(
                     f"The selected content key is invalid. {get_contact_support_msg()}"
@@ -905,7 +912,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 self.tool_info,
                 target_xblock,
             )
-            context = self._get_context(
+            context, _ = self._get_context_and_status(
                 error_title="Permission Denied",
                 error=(
                     f"You do not have permission to access the selected content. {get_contact_support_msg()}"
@@ -918,28 +925,82 @@ class DeepLinkingContentSelectionView(LtiToolView):
                 status=403,
             )
 
-        # Clear the deep linking session since content has been selected
+        status = 200
+        context = {}
+        block_filter = None
         try:
-            title = get_xblock_display_name(target_xblock)
+            dl_content_callable = self.launch_gate.get_dl_content_filter_callable()
+            if dl_content_callable:
+                block_filter = dl_content_callable(
+                    self.launch_message, self._get_platform_org()
+                )
+            title = validate_and_get_xblock_display_name(target_xblock, block_filter)
         except ValueError:
             log.error(
                 "Deep Linking Error for Tool (%s): Xblock not found: %s",
                 self.tool_info,
                 target_xblock,
             )
-            context = self._get_context(
+            context, fetch_status = self._get_context_and_status(
                 error_title="Invalid Usage Key",
                 error=(
                     f"The selected content key is invalid or does not exist. {get_contact_support_msg()}"
                 ),
             )
+            status = 400 if fetch_status == 200 else fetch_status
+        except ImportError:
+            log.error(
+                "Failed to import dl_content_filter_path: %s for tool (%s)",
+                self.launch_gate.dl_content_filter_path,
+                self.tool_info,
+            )
+            context = {
+                "selectable_content": [],
+                "error_title": "Deep Linking Error",
+                "error": (
+                    "There was an issue loading the content selection interface. "
+                    f"{get_contact_support_msg()}"
+                ),
+            }
+            status = 500
+        except DlBlockFilterError as e:
+            log.error(
+                "DlBlockFilterError: %s for user %s selecting block %s. Tool (%s)",
+                e,
+                self.launch_message.get_launch_data()["sub"],
+                target_xblock,
+                self.tool_info,
+            )
+            context, fetch_status = self._get_context_and_status(
+                error_title="Deep Linking Error",
+                error=(f"{e}. {get_contact_support_msg()}"),
+            )
+            status = 403 if fetch_status == 200 else fetch_status
+        except Exception as e:
+            log.error(
+                "Error getting selectable content: %s for user %s selecting block %s. Tool (%s)",
+                e,
+                self.launch_message.get_launch_data()["sub"],
+                target_xblock,
+                self.tool_info,
+            )
+            context, fetch_status = self._get_context_and_status(
+                error_title="Deep Linking Error",
+                error=(
+                    f"There was an issue loading the content selection interface. {get_contact_support_msg()}"
+                ),
+            )
+            status = 500 if fetch_status == 200 else fetch_status
+
+        if status != 200:
             return render(
                 self.request,
                 "lti_1p3_provider/select_deep_link_content.html",
                 context,
-                status=400,
+                status=status,
             )
 
+        # Clear the deep linking session since content has been selected successfully
         clear_deep_linking_session(session=request.session, token=token)
         target_link_uri = self._get_target_link_uri(target_xblock)
         resource = DeepLinkResource()
@@ -955,13 +1016,80 @@ class DeepLinkingContentSelectionView(LtiToolView):
         # resubmit at this point
         return HttpResponse(deep_link_response, content_type="text/html")
 
-    def _get_context(self, error_title: str = "", error: str = ""):
-        """Return context for select_deep_link_content.html"""
+    def _get_context_and_status(self, error_title: str = "", error: str = ""):
+        """Return context for select_deep_link_content.html
+
+        Fetches selectable content and returns a context and status code
+        """
+        status = 200
+        try:
+            content = self._get_selectable_content()
+        except ImportError:
+            # Something went wrong importing the filter despite the input validation
+            # in django admin
+            log.error(
+                "Failed to import dl_content_filter_path: %s for tool (%s)",
+                self.launch_gate.dl_content_filter_path,
+                self.tool_info,
+            )
+            error_title = "Deep Linking Error"
+            error = (
+                "There was an issue loading the content selection interface. "
+                f"{get_contact_support_msg()}"
+            )
+            content = []
+            status = 500
+        except DlBlockFilterError as e:
+            log.error("Block Filter raised error: %s for tool (%s)", e, self.tool_info)
+            error_title = "Deep Linking Error"
+            error = (
+                e.user_message
+                or "There was an issue loading the content selection interface."
+            )
+            error = f"{error.rstrip().rstrip('.')}. {get_contact_support_msg()}"
+            content = []
+            status = e.status_code
+        except Exception as e:
+            log.exception(
+                "Error getting selectable content: %s for tool (%s)", e, self.tool_info
+            )
+            error_title = "Deep Linking Error"
+            error = (
+                "There was an issue loading the content selection interface. "
+                f"{get_contact_support_msg()}"
+            )
+            content = []
+            status = 500
+
         return {
-            "selectable_content": get_selectable_dl_content(self.launch_gate),
+            "selectable_content": content,
             "error_title": error_title,
             "error": error,
-        }
+        }, status
+
+    def _get_selectable_content(self) -> dict[str, list[Content]]:
+        """Return selectable content
+
+        Raises:
+          ImportError if block filter exists and it failes to load
+          DlBlockFilterError if block filter exists and it chooses to raise it
+        """
+        block_filter = None
+        dl_content_callable = self.launch_gate.get_dl_content_filter_callable()
+        if dl_content_callable:
+            log.info(
+                "Using block filter %s for DL Content Selection (%s)",
+                self.launch_gate.dl_content_filter_path,
+                self.tool_info,
+            )
+            block_filter = dl_content_callable(
+                self.launch_message, self._get_platform_org()
+            )
+        return get_selectable_dl_content(self.launch_gate, block_filter)
+
+    def _get_platform_org(self) -> str:
+        """Return the platform org for the tool"""
+        return self.tool.tool_org.org.short_name
 
     def _get_target_link_uri(self, usage_key: UsageKey) -> str:
         """Generate absolute target_link_uri to xblock usage_key"""

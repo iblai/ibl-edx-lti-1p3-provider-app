@@ -19,7 +19,13 @@ class LaunchGateAdmin(admin.ModelAdmin):
         (
             "Accessible Content",
             {
-                "fields": ("tool", "allowed_keys", "allowed_courses", "allowed_orgs"),
+                "fields": (
+                    "tool",
+                    "allowed_keys",
+                    "allowed_courses",
+                    "allowed_orgs",
+                    "dl_content_filter_path",
+                ),
                 "description": (
                     "A Tool will be allowed to launch/deep link with any key in "
                     "allowed_keys, all keys under allowed_courses, and all keys under "

@@ -54,6 +54,7 @@ import logging
 import random
 import string
 import typing as t
+from importlib import import_module
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -67,12 +68,46 @@ from organizations.models import Organization
 from pylti1p3.contrib.django import DjangoDbToolConf, DjangoMessageLaunch
 from pylti1p3.contrib.django.lti1p3_tool_config.models import LtiTool, LtiToolKey
 from pylti1p3.grade import Grade
+from pylti1p3.message_launch import MessageLaunch
+from xblock.core import XBlock
 
 EDX_LTI_EMAIL_DOMAIN = "edx-lti-1p3.com"
 
 log = logging.getLogger(__name__)
 
 User = get_user_model()
+
+# Type alias for the deep linking content filter callable
+DlContentFilterCallable = t.Callable[[MessageLaunch, str], t.Callable[[XBlock], bool]]
+
+
+def import_from_string(dotted_path: str) -> t.Callable[[XBlock], bool]:
+    """
+    Import an object (class, function, variable, etc.) from a dotted path string.
+    Example: 'package.module.ClassName'
+
+    Raise ImportError if the module path is invalid
+    """
+    try:
+        module_path, object_name = dotted_path.rsplit(".", 1)
+    except ValueError:
+        log.warning("Invalid module path: %s", dotted_path)
+        raise ImportError(f"{dotted_path} doesn't look like a module path")
+
+    module = import_module(module_path)
+    try:
+        return getattr(module, object_name)
+    except AttributeError:
+        log.warning("Module '%s' does not define a '%s'", module_path, object_name)
+        raise ImportError(f"Module '{module_path}' does not define a '{object_name}'")
+
+
+def validate_dl_content_filter_callback(dotted_path: str) -> None:
+    """Raise ValidationError if dotted_path is not importable"""
+    try:
+        import_from_string(dotted_path)
+    except ImportError as e:
+        raise ValidationError(f"Invalid dl_content_filter_callback: {e}") from e
 
 
 def create_edx_user(first_name: str, last_name: str) -> tuple[User, bool]:
@@ -495,6 +530,32 @@ class LaunchGate(models.Model):
         blank=True,
         validators=[validate_org_block_filter],
     )
+    dl_content_filter_path = models.CharField(
+        default="",
+        blank=True,
+        max_length=255,
+        help_text=(
+            "Dotted path to Callable to filter dl content. Must accept a pylti1p3 MessageLaunch "
+            "and platform org and return a Callable that accepts an XBlock instance and returns bool "
+            "(True = keep, False = filter out)"
+        ),
+        validators=[validate_dl_content_filter_callback],
+    )
+
+    def get_dl_content_filter_callable(self) -> DlContentFilterCallable | None:
+        """Return the Callable from the dl_content_filter_path if set, else None
+
+        The Callable must accept arguments: msg: MessageLaunch, platform_org: str
+
+        It must return a Callable[[XBlock], bool] where bool indicates whether to
+        filter that block in (True = keep, False = filter out)
+
+        Raise a DlBlockFilterError from the callable if there are any issues to prevent
+        showing any content to the end user.
+        """
+        if self.dl_content_filter_path:
+            return import_from_string(self.dl_content_filter_path)
+        return None
 
     def can_access_key(self, usage_key: UsageKey) -> bool:
         """

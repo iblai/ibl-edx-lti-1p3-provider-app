@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import logging
+import typing as t
 from collections import defaultdict
 from typing import Any, TypedDict
 
 from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey, UsageKey
+from xblock.core import XBlock
 from xmodule.modulestore.django import modulestore
 from xmodule.modulestore.mixed import MixedModuleStore
 
+from lti_1p3_provider.exceptions import DlBlockFilterError
 from lti_1p3_provider.models import LaunchGate
 
 log = logging.getLogger(__name__)
@@ -22,7 +25,10 @@ class Content(TypedDict):
     description: str
 
 
-def get_selectable_dl_content(launch_gate: LaunchGate) -> dict[str, list[Content]]:
+def get_selectable_dl_content(
+    launch_gate: LaunchGate,
+    block_filter: t.Callable[[XBlock], bool] | None = None,
+) -> dict[str, list[Content]]:
     """
     Return a nested Content structure of all the blocks that are servable via LTI.
 
@@ -67,7 +73,11 @@ def get_selectable_dl_content(launch_gate: LaunchGate) -> dict[str, list[Content
             with m.bulk_operations(course_key):
                 # Get course content with filtering
                 course_content = _get_course_content(
-                    m, course, launch_gate, allowed_keys
+                    m,
+                    course,
+                    launch_gate,
+                    allowed_keys,
+                    block_filter,
                 )
                 if course_content["children"]:
                     results[org].append(course_content)
@@ -77,7 +87,7 @@ def get_selectable_dl_content(launch_gate: LaunchGate) -> dict[str, list[Content
             continue
 
     explicitly_allowed_blocks = _fetch_explicitly_allowed_blocks(
-        m, launch_gate, allowed_keys
+        m, launch_gate, allowed_keys, block_filter
     )
     results = _add_content(m, results, explicitly_allowed_blocks)
 
@@ -116,7 +126,10 @@ def _get_courses(m: MixedModuleStore, launch_gate: LaunchGate) -> dict[str, Cont
 
 
 def _fetch_explicitly_allowed_blocks(
-    m: MixedModuleStore, launch_gate: LaunchGate, allowed_keys: list[str]
+    m: MixedModuleStore,
+    launch_gate: LaunchGate,
+    allowed_keys: list[str],
+    block_filter: t.Callable[[XBlock], bool] | None = None,
 ) -> list[Content]:
     """Fetch allowed keys from modulestore using bulk operations"""
     results = []
@@ -135,7 +148,12 @@ def _fetch_explicitly_allowed_blocks(
         block = m.get_item(usage_key)
         # We have to construct full tree in case block has children
         child_content = _traverse_and_filter_block(
-            m, block, launch_gate, course_content, allowed_keys
+            m,
+            block,
+            launch_gate,
+            course_content,
+            allowed_keys,
+            block_filter,
         )
         results.append(child_content)
 
@@ -143,7 +161,11 @@ def _fetch_explicitly_allowed_blocks(
 
 
 def _get_course_content(
-    m: MixedModuleStore, course: Any, launch_gate: LaunchGate, allowed_keys: list[str]
+    m: MixedModuleStore,
+    course: Any,
+    launch_gate: LaunchGate,
+    allowed_keys: list[str],
+    block_filter: t.Callable | None,
 ) -> Content:
     """Get course content with filtering applied"""
     # Build course content structure
@@ -161,6 +183,7 @@ def _get_course_content(
                 launch_gate,
                 course_content,
                 allowed_keys,
+                block_filter,
             )
             if child_content:
                 children.append(child_content)
@@ -175,6 +198,7 @@ def _traverse_and_filter_block(
     launch_gate: LaunchGate,
     course_content: list[Content],
     allowed_keys: list[str],
+    block_filter: t.Callable | None,
 ) -> Content | None:
     """Recursively traverse and filter blocks"""
     # Build content for this block
@@ -189,6 +213,7 @@ def _traverse_and_filter_block(
             launch_gate,
             course_content,
             allowed_keys,
+            block_filter,
         )
         if child_content:
             children.append(child_content)
@@ -196,10 +221,12 @@ def _traverse_and_filter_block(
     content["children"] = children
     location = block.location
     if launch_gate.can_access_key(location):
-        course_content.append(content)
-        # Won't need to refetch this one
-        if str(location) in allowed_keys:
-            allowed_keys.remove(str(location))
+        # Don't add the content if the block was filtered out
+        if not block_filter or block_filter(block):
+            course_content.append(content)
+            # Won't need to refetch this one
+            if str(location) in allowed_keys:
+                allowed_keys.remove(str(location))
     return content
 
 
@@ -253,10 +280,23 @@ def _add_content(
     return all_content
 
 
-def get_xblock_display_name(usage_key: UsageKey) -> Any:
-    """Get an xblock's display name from the modulestore"""
+def validate_and_get_xblock_display_name(
+    usage_key: UsageKey, block_filter: t.Callable[[XBlock], bool] | None = None
+) -> str:
+    """Get an xblock's display name from the modulestore and validate access"""
+
     m = modulestore()
     block = m.get_item(usage_key)
     if not block:
         raise ValueError(f"Block not found: {usage_key}")
+
+    # This should only happen someone tried to post an xblock they don't have access to
+    # specifically trying to bypass the content selector, or their access was removed
+    # after starting deep linking selection
+    if block_filter and not block_filter(block):
+        log.warning("User does not have access to block %s", usage_key)
+        raise DlBlockFilterError(
+            user_message="You don't have access to this content", status_code=403
+        )
+
     return block.display_name
