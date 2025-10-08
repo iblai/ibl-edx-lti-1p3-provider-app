@@ -25,8 +25,6 @@ class DlBlockFilterError(Lti1p3ProviderError):
         status_code: The HTTP status code to return
 
     If no user_message is provided, a generic error will be returned.
-
-
     """
 
     def __init__(
