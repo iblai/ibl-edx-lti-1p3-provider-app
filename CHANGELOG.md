@@ -4,7 +4,7 @@
 
 ## 2.5.0
 ### Added
-- [#47](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/46): Add filter hook to register custom filtering functions per `LaunchGate` 
+- [#47](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/47): Add filter hook to register custom filtering functions per `LaunchGate` 
 
 ## 2.4.1
 ### Changed
