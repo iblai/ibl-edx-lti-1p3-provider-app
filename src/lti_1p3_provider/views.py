@@ -71,9 +71,15 @@ User = get_user_model()
 LTI_1P3_EMAIL_META_KEY = "lti_1p3_email"
 DEFAULT_DEEP_LINKING_SESSION_DURATION_SEC = 1800  # 30 minutes
 DEFAULT_LTI_DEEP_LINKING_ACCEPT_ROLES = [
+    # System Admin Roles
+    "http://purl.imsglobal.org/vocab/lis/v2/system/person#Administrator",
+    # Institution Roles
+    "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator",
     "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Instructor",
+    # Membership Roles
+    "http://purl.imsglobal.org/vocab/lis/v2/membership#Administrator",
+    "http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor",
     "http://purl.imsglobal.org/vocab/lis/v2/membership#ContentDeveloper",
-    "http://purl.imsglobal.org/vocab/lis/v2/membership#Manager",
 ]
 
 
