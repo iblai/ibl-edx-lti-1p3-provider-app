@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import typing as t
 from datetime import datetime, timedelta
 from urllib import parse
 
@@ -38,6 +39,7 @@ from pylti1p3.contrib.django import (
     DjangoMessageLaunch,
     DjangoOIDCLogin,
 )
+from pylti1p3.deep_link import DeepLink
 from pylti1p3.deep_link_resource import DeepLinkResource
 from pylti1p3.exception import LtiException, OIDCException
 
@@ -1009,13 +1011,11 @@ class DeepLinkingContentSelectionView(LtiToolView):
         # Clear the deep linking session since content has been selected successfully
         clear_deep_linking_session(session=request.session, token=token)
         target_link_uri = self._get_target_link_uri(target_xblock)
-        resource = DeepLinkResource()
-        resource.set_url(target_link_uri)
-        resource.set_title(title)
-        deep_link_response = self.launch_message.get_deep_link().output_response_form(
-            [resource]
-        )
-
+        dl_resource = DeepLinkResource().set_url(target_link_uri).set_title(title)
+        resources = [dl_resource]
+        deep_link = self.launch_message.get_deep_link()
+        jwt_val = self._get_dl_message_jwt(deep_link, resources)
+        deep_link_response = deep_link.get_response_form_html(jwt_val)
         # TODO: Should be returning a redirect here. Most LMSs close the window after
         # this anyway, so for expediency we're returning an HTML response.
         # it's more of a UX issue bc their session is already cleared so they can't
@@ -1072,6 +1072,39 @@ class DeepLinkingContentSelectionView(LtiToolView):
             "error_title": error_title,
             "error": error,
         }, status
+
+    def _get_dl_message_jwt(
+        self, deep_link: DeepLink, resources: list[DeepLinkResource]
+    ) -> str:
+        """Return deep linking message JWT for selected resources
+
+        This is normally all handled by pylti1p3's DeepLink.output_resource_form(), but pylti1p3
+        sets the lti-dl/data/claim/ to null if it's not present, which some LMSs don't like.
+        Spec only says "claim is required if present" - so we're going to remove it if not
+        present
+        """
+        dl_settings_claim = (
+            "https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"
+        )
+        message_jwt = deep_link.get_message_jwt(resources)
+        # We know it's already got a deep link settings claim at this point
+        dl_settings: dict[str, t.Any] = self.launch_message.get_launch_data()[
+            dl_settings_claim
+        ]
+        message_jwt = self._remove_data_claim_if_unset(dl_settings, message_jwt)
+        return deep_link.encode_jwt(message_jwt)
+
+    def _remove_data_claim_if_unset(
+        self, deep_link_settings: dict[str, t.Any], message_jwt: dict[str, t.Any]
+    ) -> dict[str, t.Any]:
+        """Remove the lti-dl/claim/data if it's not set in deep_link_settings
+
+        pylti1p3 sets it to null by default if it's not there.
+        """
+        dl_data_claim = "https://purl.imsglobal.org/spec/lti-dl/claim/data"
+        if dl_data_claim not in deep_link_settings:
+            message_jwt.pop(dl_data_claim, None)
+        return message_jwt
 
     def _get_selectable_content(self) -> dict[str, list[Content]]:
         """Return selectable content
