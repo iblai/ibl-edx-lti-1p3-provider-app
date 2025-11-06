@@ -1097,12 +1097,13 @@ class DeepLinkingContentSelectionView(LtiToolView):
     def _remove_data_claim_if_unset(
         self, deep_link_settings: dict[str, t.Any], message_jwt: dict[str, t.Any]
     ) -> dict[str, t.Any]:
-        """Remove the lti-dl/claim/data if it's not set in deep_link_settings
+        """Remove the data if it's not set in deep_link_settings
 
         pylti1p3 sets it to null by default if it's not there.
         """
         dl_data_claim = "https://purl.imsglobal.org/spec/lti-dl/claim/data"
-        if dl_data_claim not in deep_link_settings:
+        # The incoming dl settings claim is 'data', the response data claim is the full url
+        if "data" not in deep_link_settings:
             message_jwt.pop(dl_data_claim, None)
         return message_jwt
 
