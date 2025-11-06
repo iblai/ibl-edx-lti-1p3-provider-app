@@ -1065,7 +1065,7 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
         self, mock_get_display_name, client
     ):
         """Test POST request with dl_content_filter_path that raises generic Exception returns 500"""
-        mock_get_display_name.side_effect = ValueError("Generic filter error")
+        mock_get_display_name.side_effect = Exception("Generic filter error")
         gate = factories.LaunchGateFactory(
             tool=self.tool,
             allowed_orgs=[factories.COURSE_KEY.org],
