@@ -674,11 +674,87 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
         # Check for JWT form field
         jwt_input = form.find("input", {"name": "JWT"})
         assert jwt_input is not None, "Form should contain JWT input field"
-        assert jwt_input.get("value") is not None, "JWT input should have a value"
+        jwt_token = jwt_input.get("value")
+        assert jwt_token is not None, "JWT input should have a value"
+
+        # Decode JWT and verify data claim is NOT present (since factory doesn't include it)
+        decoded = jwt.decode(jwt_token, options={"verify_signature": False})
+        dl_data_claim = "https://purl.imsglobal.org/spec/lti-dl/claim/data"
+        assert dl_data_claim not in decoded, (
+            f"Expected {dl_data_claim} to be absent from JWT when not in deep_linking_settings"
+        )
 
         # Verify that the deep linking session was cleared
         session_key = f"{LTI_DEEP_LINKING_SESSION_PREFIX}{self.token}"
         assert session_key not in client.session
+
+    @mock.patch("lti_1p3_provider.views.validate_and_get_xblock_display_name")
+    def test_post_preserves_data_claim_when_in_deep_linking_settings(
+        self, mock_get_display_name, client
+    ):
+        """Test POST preserves lti-dl/claim/data in JWT when present in deep_linking_settings"""
+        mock_get_display_name.return_value = "Test Title"
+        gate = factories.LaunchGateFactory(
+            tool=self.tool,
+            allowed_orgs=[factories.COURSE_KEY.org],
+        )
+
+        # Setup session with data claim in deep_linking_settings
+        client.login(username=self.user.username, password=self.password)
+
+        # Create ID token WITH data claim in deep_linking_settings
+        id_token = factories.DeepLinkIdTokenFactory(
+            aud=self.tool.client_id, nonce="nonce"
+        )
+        # Add data claim to deep_linking_settings
+        dl_settings_claim = (
+            "https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"
+        )
+        dl_data_claim = "https://purl.imsglobal.org/spec/lti-dl/claim/data"
+        test_data_value = "test-custom-data-12345"
+        id_token[dl_settings_claim][dl_data_claim] = test_data_value
+
+        # Setup session with cache
+        rf = RequestFactory()
+        mock_request = rf.get("/")
+        mock_request.session = client.session
+
+        storage = DjangoCacheDataStorage()
+        storage.set_request(mock_request)
+        sess_service = SessionService(mock_request)
+        sess_service.set_data_storage(storage)
+        sess_service.save_launch_data(self.dl_session_data["launch_id"], id_token)
+
+        session_key = f"{LTI_DEEP_LINKING_SESSION_PREFIX}{self.token}"
+        session = client.session
+        session[session_key] = self.dl_session_data
+        session.save()
+
+        url = reverse(
+            "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
+        )
+
+        resp = client.post(url, {"deep_link_content": str(factories.USAGE_KEY)})
+
+        assert resp.status_code == 200
+
+        # Extract JWT from response
+        soup = BeautifulSoup(resp.content, "html.parser")
+        jwt_input = soup.find("input", {"name": "JWT"})
+        assert jwt_input is not None
+        jwt_token = jwt_input.get("value")
+        assert jwt_token is not None
+
+        # Decode JWT without verification to check claims
+        decoded = jwt.decode(jwt_token, options={"verify_signature": False})
+
+        # Verify the data claim IS present and unchanged
+        assert dl_data_claim in decoded, (
+            f"Expected {dl_data_claim} to be present in JWT when in deep_linking_settings"
+        )
+        assert decoded[dl_data_claim] == test_data_value, (
+            f"Expected data claim to be '{test_data_value}', got '{decoded[dl_data_claim]}'"
+        )
 
     @pytest.mark.parametrize(
         "post_data",
