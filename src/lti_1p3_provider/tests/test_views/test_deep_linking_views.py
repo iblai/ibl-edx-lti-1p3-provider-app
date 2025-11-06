@@ -693,7 +693,6 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
         self, mock_get_display_name, client
     ):
         """Test POST preserves lti-dl/claim/data in JWT when present in deep_linking_settings"""
-        dl_data_claim = "https://purl.imsglobal.org/spec/lti-dl/claim/data"
         test_data_value = "test-123"
         mock_get_display_name.return_value = "Test Title"
         gate = factories.LaunchGateFactory(
@@ -709,7 +708,7 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
             aud=self.tool.client_id, nonce="nonce"
         )
         id_token["https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"][
-            dl_data_claim
+            "data"
         ] = test_data_value
         self._setup_session(client, id_token=id_token)
 
@@ -732,6 +731,7 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
         decoded = jwt.decode(jwt_token, options={"verify_signature": False})
 
         # Verify the data claim IS present and unchanged
+        dl_data_claim = "https://purl.imsglobal.org/spec/lti-dl/claim/data"
         assert dl_data_claim in decoded, (
             f"Expected {dl_data_claim} to be present in JWT when in deep_linking_settings"
         )
