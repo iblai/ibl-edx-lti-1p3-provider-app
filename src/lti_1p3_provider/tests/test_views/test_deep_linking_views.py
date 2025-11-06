@@ -287,13 +287,13 @@ class DeepLinkingContentSelectionBaseTest:
             "expires_at": (timezone.now() + timedelta(minutes=30)).timestamp(),
         }
 
-    def _setup_session(self, client, authenticated=True):
+    def _setup_session(self, client, authenticated=True, id_token=None):
         """Setup client session with deep linking context and cache entry"""
         if authenticated:
             client.login(username=self.user.username, password=self.password)
 
         # Create the ID token that will be stored in cache
-        id_token = factories.DeepLinkIdTokenFactory(
+        id_token = id_token or factories.DeepLinkIdTokenFactory(
             aud=self.tool.client_id, nonce="nonce"
         )
 
@@ -693,6 +693,8 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
         self, mock_get_display_name, client
     ):
         """Test POST preserves lti-dl/claim/data in JWT when present in deep_linking_settings"""
+        dl_data_claim = "https://purl.imsglobal.org/spec/lti-dl/claim/data"
+        test_data_value = "test-123"
         mock_get_display_name.return_value = "Test Title"
         gate = factories.LaunchGateFactory(
             tool=self.tool,
@@ -706,29 +708,10 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
         id_token = factories.DeepLinkIdTokenFactory(
             aud=self.tool.client_id, nonce="nonce"
         )
-        # Add data claim to deep_linking_settings
-        dl_settings_claim = (
-            "https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"
-        )
-        dl_data_claim = "https://purl.imsglobal.org/spec/lti-dl/claim/data"
-        test_data_value = "test-custom-data-12345"
-        id_token[dl_settings_claim][dl_data_claim] = test_data_value
-
-        # Setup session with cache
-        rf = RequestFactory()
-        mock_request = rf.get("/")
-        mock_request.session = client.session
-
-        storage = DjangoCacheDataStorage()
-        storage.set_request(mock_request)
-        sess_service = SessionService(mock_request)
-        sess_service.set_data_storage(storage)
-        sess_service.save_launch_data(self.dl_session_data["launch_id"], id_token)
-
-        session_key = f"{LTI_DEEP_LINKING_SESSION_PREFIX}{self.token}"
-        session = client.session
-        session[session_key] = self.dl_session_data
-        session.save()
+        id_token["https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"][
+            dl_data_claim
+        ] = test_data_value
+        self._setup_session(client, id_token=id_token)
 
         url = reverse(
             "lti_1p3_provider:deep-linking-select-content", kwargs={"token": self.token}
