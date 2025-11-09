@@ -1,6 +1,10 @@
 # LTI 1.3 Provider
 
 ## Unreleased
+## 2.5.1
+### Changed
+- [#50](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/50): Remove the lti data claim during deep linking if not originally sent
+  - pylti3p3 sets the value to `null` if it's not sent instead of not including it at all, which can cause downstream issues
 
 ## 2.5.0
 ### Added
