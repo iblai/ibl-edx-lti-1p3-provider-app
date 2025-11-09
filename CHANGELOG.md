@@ -1,6 +1,18 @@
 # LTI 1.3 Provider
 
 ## Unreleased
+## 2.5.1
+### Changed
+- [#50](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/50): Remove the lti data claim during deep linking if not originally sent
+  - pylti1p3 sets the value to `null` if it's not sent instead of not including it at all, which can cause downstream issues
+  - fixes logging when clearing deep linking session so it logs session id instead of values that didn't exist in dict
+  - changes default LTI deep linking roles to the following by default:
+    - "http://purl.imsglobal.org/vocab/lis/v2/system/person#Administrator"
+    - "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator"
+    - "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Instructor"
+    - "http://purl.imsglobal.org/vocab/lis/v2/membership#Administrator"
+    - "http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor"
+    - "http://purl.imsglobal.org/vocab/lis/v2/membership#ContentDeveloper"
 
 ## 2.5.0
 ### Added
