@@ -71,7 +71,7 @@ def store_deep_linking_context(
     Args:
         session: Django session object
         token: Unique token for this session
-        deep_link_data: Deep linking specific data
+        launch_id: Launch ID associated with this session
         session_duration_sec: Session duration in seconds (default 30 minutes)
     """
     now = timezone.now()
@@ -199,14 +199,12 @@ def clear_deep_linking_session(session: SessionBase, token: str) -> None:
     session_key = _get_deep_linking_session_key(token)
     if session_key in session:
         dl_context = session[session_key]
-        tool_info = dl_context.get("tool_info", {})
-        tool_text = f"issuer={tool_info.get('issuer', 'unknown')}, client_id={tool_info.get('client_id', 'unknown')}"
 
         del session[session_key]
 
         log.info(
-            "Successfully removed deep linking session for Tool (%s), token %s",
-            tool_text,
+            "Successfully removed deep linking session for launch id %s, token %s",
+            dl_context.get("launch_id", "unknown"),
             token[:8] + "...",
         )
     else:
