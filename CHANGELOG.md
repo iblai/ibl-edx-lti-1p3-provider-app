@@ -1,6 +1,10 @@
 # LTI 1.3 Provider
 
 ## Unreleased
+## 2.5.2
+### Changed
+- [#52](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/52): Store the lti-1p3-launch-id from pylti1p3 in the users session
+
 ## 2.5.1
 ### Changed
 - [#50](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/50): Remove the lti data claim during deep linking if not originally sent

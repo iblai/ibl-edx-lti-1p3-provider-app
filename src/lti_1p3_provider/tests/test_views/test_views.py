@@ -8,6 +8,7 @@ import json
 from datetime import timedelta
 from unittest import mock
 from urllib import parse
+from uuid import UUID
 
 import jwt
 import pytest
@@ -33,7 +34,7 @@ from lti_1p3_provider.error_response import (
     get_contact_support_msg,
 )
 from lti_1p3_provider.models import EDX_LTI_EMAIL_DOMAIN, LtiGradedResource, LtiProfile
-from lti_1p3_provider.session_access import LTI_SESSION_KEY
+from lti_1p3_provider.session_access import LTI_LAUNCH_ID_KEY, LTI_SESSION_KEY
 from lti_1p3_provider.tests import factories, fakes
 from lti_1p3_provider.tests.base import URL_LIB_LTI_JWKS
 from lti_1p3_provider.views import (
@@ -784,6 +785,27 @@ class TestLtiBasicLaunch:
                 )
             ],
         }
+
+    def test_session_launch_id_set(self, rf):
+        """Session launch id is set"""
+        target_link_uri = _get_target_link_uri()
+        id_token = factories.IdTokenFactory(
+            aud=self.tool.client_id,
+            nonce="nonce",
+            target_link_uri=target_link_uri,
+        )
+        encoded = _encode_platform_jwt(id_token, self.kid)
+        payload = {"state": "state", "id_token": encoded}
+        request = rf.post(self.launch_endpoint, data=payload)
+        _get_session_middleware().process_request(request)
+        request.session.save()
+
+        LtiToolLaunchView.as_view()(request)
+
+        launch_id = request.session[LTI_LAUNCH_ID_KEY]
+        prefix = "lti1p3-launch-"
+        assert launch_id.startswith(prefix)
+        assert UUID(launch_id[len(prefix) :])
 
     def test_session_exp_set_to_none(self, rf):
         """Session expiration is set to None by default"""

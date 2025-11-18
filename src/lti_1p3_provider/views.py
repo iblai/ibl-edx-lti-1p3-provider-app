@@ -63,6 +63,7 @@ from .session_access import (
     generate_deep_linking_token,
     has_lti_session_access,
     set_lti_session_access,
+    set_lti_session_launch_id,
     store_deep_linking_context,
     validate_deep_linking_session,
 )
@@ -571,6 +572,9 @@ class LtiToolLaunchView(LtiToolView):
 
         # Set session access for the target resource
         self._set_session_access()
+        set_lti_session_launch_id(
+            self.request.session, self.launch_message.get_launch_id()
+        )
 
         # Redirect to the target content
         return redirect(self._get_target_link_uri())

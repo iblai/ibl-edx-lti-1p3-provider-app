@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 
 LTI_SESSION_KEY = "lti_access"
 LTI_DEEP_LINKING_SESSION_PREFIX = "lti_deep_link_context_"
+LTI_LAUNCH_ID_KEY = "lti_1p3_launch_id"
 
 
 def set_lti_session_access(
@@ -28,6 +29,12 @@ def set_lti_session_access(
         session[LTI_SESSION_KEY].update(access)
 
     log.debug("LTI Session Set to: %s", session[LTI_SESSION_KEY])
+
+
+def set_lti_session_launch_id(session: SessionBase, launch_id: str) -> None:
+    """Grant access to path until expiration. If None, it's as long as logged in"""
+    session[LTI_LAUNCH_ID_KEY] = launch_id
+    log.debug("Stored launch id: %s", session[LTI_LAUNCH_ID_KEY])
 
 
 def has_lti_session_access(session: SessionBase, path) -> bool:
