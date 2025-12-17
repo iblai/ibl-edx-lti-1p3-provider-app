@@ -1016,12 +1016,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
         # Clear the deep linking session since content has been selected successfully
         clear_deep_linking_session(session=request.session, token=token)
         target_link_uri = self._get_target_link_uri(target_xblock)
-        dl_resource = (
-            DeepLinkResource()
-            .set_url(target_link_uri)
-            .set_title(title)
-            .set_custom_params({"test": "value"})
-        )
+        dl_resource = DeepLinkResource().set_url(target_link_uri).set_title(title)
         resources = [dl_resource]
         deep_link = self.launch_message.get_deep_link()
         jwt_val = self._get_dl_message_jwt(deep_link, resources)
