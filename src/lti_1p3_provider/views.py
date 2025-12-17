@@ -940,6 +940,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
         status = 200
         context = {}
         block_filter = None
+        title = ""
         try:
             dl_content_callable = self.launch_gate.get_dl_content_filter_callable()
             if dl_content_callable:
@@ -1091,6 +1092,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
             "https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"
         )
         message_jwt = deep_link.get_message_jwt(resources)
+        message_jwt = self._remove_custom_claim_if_unset(message_jwt)
         # We know it's already got a deep link settings claim at this point
         dl_settings: dict[str, t.Any] = self.launch_message.get_launch_data()[
             dl_settings_claim
@@ -1109,6 +1111,24 @@ class DeepLinkingContentSelectionView(LtiToolView):
         # The incoming dl settings claim is 'data', the response data claim is the full url
         if "data" not in deep_link_settings:
             message_jwt.pop(dl_data_claim, None)
+        return message_jwt
+
+    def _remove_custom_claim_if_unset(
+        self, message_jwt: dict[str, t.Any]
+    ) -> dict[str, t.Any]:
+        """Remove custom claim if it's not set in ltiResourceLink content items
+
+        This is set to an empty dict by default for pylti1p3 even if not explicitly set.
+        Moodle fails if this is an empty dict.
+        """
+        content_items_claim = (
+            "https://purl.imsglobal.org/spec/lti-dl/claim/content_items"
+        )
+        for item in message_jwt.get(content_items_claim, []):
+            if item["type"] == "ltiResourceLink":
+                custom_params = item.get("custom", {})
+                if not custom_params:
+                    item.pop("custom", None)
         return message_jwt
 
     def _get_selectable_content(self) -> dict[str, list[Content]]:

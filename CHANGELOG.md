@@ -1,6 +1,12 @@
 # LTI 1.3 Provider
 
 ## Unreleased
+
+## 2.5.3
+### Changed
+- [#54](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/54): Remove `custom` claim from Deep Linking ltiResourceLink content items if empty
+  - Fixes Moodle (it fails if the custom claim is an empty dict)
+
 ## 2.5.2
 ### Changed
 - [#52](https://github.com/iblai/ibl-edx-lti-1p3-provider-app/issues/52): Store the lti-1p3-launch-id from pylti1p3 in the users session
