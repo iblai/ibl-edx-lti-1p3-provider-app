@@ -684,9 +684,15 @@ class TestDeepLinkingContentSelectionViewPOST(DeepLinkingContentSelectionBaseTes
             f"Expected {dl_data_claim} to be absent from JWT when not in deep_linking_settings"
         )
 
-        # custom claim for lti resource links is removed when unset (default)
-        content_items = "https://purl.imsglobal.org/spec/lti-dl/claim/content_items"
-        assert "custom" not in content_items[0]
+        # custom claim for lti resource link content items is removed when unset (default)
+        content_items_claim = (
+            "https://purl.imsglobal.org/spec/lti-dl/claim/content_items"
+        )
+        content_items = decoded[content_items_claim]
+        assert len(content_items) == 1
+        item = content_items[0]
+        assert item["type"] == "ltiResourceLink"
+        assert "custom" not in item
 
         # Verify that the deep linking session was cleared
         session_key = f"{LTI_DEEP_LINKING_SESSION_PREFIX}{self.token}"
