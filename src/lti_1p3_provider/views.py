@@ -940,6 +940,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
         status = 200
         context = {}
         block_filter = None
+        title = ""
         try:
             dl_content_callable = self.launch_gate.get_dl_content_filter_callable()
             if dl_content_callable:
@@ -1016,6 +1017,7 @@ class DeepLinkingContentSelectionView(LtiToolView):
         clear_deep_linking_session(session=request.session, token=token)
         target_link_uri = self._get_target_link_uri(target_xblock)
         dl_resource = DeepLinkResource().set_url(target_link_uri).set_title(title)
+        dl_resource.set_custom_params({"test": "value"})
         resources = [dl_resource]
         deep_link = self.launch_message.get_deep_link()
         jwt_val = self._get_dl_message_jwt(deep_link, resources)
